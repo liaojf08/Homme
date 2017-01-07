@@ -2557,10 +2557,24 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   hvcoord_hyai_ptr = loc(hvcoord%hyai)
   deriv_Dvv_ptr    = loc(deriv%Dvv)
   suml(:,:,1) = 0
+  do ie=nets,nete
+     elem_state_dp3d_n0_ptr        = elem_array(2,ie)
+     elem_Dinv_ptr                 = elem_array(5,ie)
+      do k =1, nlev
+          dp(:,:,k) = elem_state_dp3d_n0(:,:,k)
+          if (k==1) then
+             p(:,:,k)=hvcoord_hyai(k)*hvcoord_ps0 + dp(:,:,k)/2
+          else
+             p(:,:,k)=p(:,:,k-1) + dp(:,:,k-1)/2 + dp(:,:,k)/2
+          endif
+          !grad_p(:,:,:,k) = gradient_sphere(p(:,:,k),deriv,elem_Dinv)
+          call my_gradient_sphere(p(:,:,k),deriv_Dvv(:,:),elem_Dinv(:,:,:,:),grad_p(:,:,:,k),my_rrearth)
+      enddo
+  enddo
   do k =2, nlev
       suml(:,:,k) = suml(:,:,k-1) + divdp(:,:,k-1)
   enddo
-  !$ACC PARALLEL LOOP local(omega_p(*,*,*),T_v(*,*,*),divdp(*,*,*),vtemp,vgrad_T,Ephi,grad_ps,vort(*,*,*),dp(*,*,*),vgrad_p(*,*,*),p(*,*,*),grad_p(*,*,*,*),suml(*,*,*)) copyin(hvcoord_hyai,deriv_dvv,elem_array) annotate(entire(deriv_dvv,hvcoord_hyai))
+  !!$ACC PARALLEL LOOP local(omega_p(*,*,*),T_v(*,*,*),divdp(*,*,*),vtemp,vgrad_T,Ephi,grad_ps,vort(*,*,*),dp(*,*,*),vgrad_p(*,*,*),p(*,*,*),grad_p(*,*,*,*),suml(*,*,*)) copyin(hvcoord_hyai,deriv_dvv,elem_array) annotate(entire(deriv_dvv,hvcoord_hyai))
   do ie=nets,nete
 
      elem_derived_phi_ptr          = elem_array(1,ie)
@@ -2587,22 +2601,10 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      elem_rmetdet_ptr              = elem_array(22,ie)
      elem_D_ptr                    = elem_array(23,ie)
 
-      do k =1, nlev
-          !$ACC DATA copyin(elem_state_dp3d_n0(*,*,k))
-          dp(:,:,k) = elem_state_dp3d_n0(:,:,k)
-          if (k==1) then
-             p(:,:,k)=hvcoord_hyai(k)*hvcoord_ps0 + dp(:,:,k)/2
-          else
-             p(:,:,k)=p(:,:,k-1) + dp(:,:,k-1)/2 + dp(:,:,k)/2
-          endif
-          !grad_p(:,:,:,k) = gradient_sphere(p(:,:,k),deriv,elem_Dinv)
-          call my_gradient_sphere(p(:,:,k),deriv_Dvv(:,:),elem_Dinv(:,:,:,:),grad_p(:,:,:,k),my_rrearth)
-          !$ACC END DATA
-      enddo
-     !$ACC DATA copyin(elem_Dinv,elem_metdet,elem_rmetdet,elem_D)
-     !$ACC LOOP
+     !!$ACC DATA copyin(elem_Dinv,elem_metdet,elem_rmetdet,elem_D)
+     !!$ACC LOOP
      do k=65,128
-     !$ACC DATA copyin(elem_state_v_n0(*,*,*,k)) copy(elem_derived_vn0(*,*,*,k))
+     !!$ACC DATA copyin(elem_state_v_n0(*,*,*,k)) copy(elem_derived_vn0(*,*,*,k))
 
 
         do j=1,np
@@ -2622,13 +2624,13 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
         ! edit by conghui
         call my_divergence_sphere(vtemp(:,:,:),deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),my_rrearth, divdp(:,:,k))
         call my_vorticity_sphere(elem_state_v_n0(:,:,:,k),deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vort(:,:,k))
-        !$ACC END DATA
+        !!$ACC END DATA
      enddo
-     !$ACC END LOOP
-     !$ACC END DATA
+     !!$ACC END LOOP
+     !!$ACC END DATA
 
         do k=65,128
-           !$ACC DATA copyin(elem_state_Qdp_1_qn0(*,*,k),elem_state_T_n0(*,*,k))
+           !!$ACC DATA copyin(elem_state_Qdp_1_qn0(*,*,k),elem_state_T_n0(*,*,k))
            do j=1,np
               do i=1,np
                  Qt = elem_state_Qdp_1_qn0(i,j,k)/dp(i,j,k)
@@ -2644,25 +2646,25 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                 !! endif
               end do
             end do
-            !$ACC END DATA
+            !!$ACC END DATA
         end do
      ks = 65
      ke = 128
-     !$ACC DATA COPYIN(elem_state_phis) COPYOUT(elem_derived_phi)
+     !!$ACC DATA COPYIN(elem_state_phis) COPYOUT(elem_derived_phi)
      call my_preq_hydrostatic(elem_derived_phi(:,:,65:128),elem_state_phis(:,:),T_v(:,:,65:128),p(:,:,65:128),dp(:,:,65:128),Rgas, ks, ke)
      call my_preq_omega_ps(omega_p(:,:,65:128),p(:,:,65:128),vgrad_p(:,:,65:128),divdp(:,:,65:128),ks, ke, suml(:,:,65:128))
-     !$ACC END DATA
+     !!$ACC END DATA
 
      do k=65,128  !  Loop index added (AAM)
-        !$ACC DATA COPYIN(elem_derived_omega_p(*,*,k))
+        !!$ACC DATA COPYIN(elem_derived_omega_p(*,*,k))
         elem_derived_omega_p(:,:,k)      = elem_derived_omega_p(:,:,k) + eta_ave_w*omega_p(:,:,k)
-        !$ACC END DATA
+        !!$ACC END DATA
      enddo
 
-     !$ACC DATA COPYIN (elem_Dinv, elem_fcor)
-     !$ACC LOOP
+     !!$ACC DATA COPYIN (elem_Dinv, elem_fcor)
+     !!$ACC LOOP
      do k=65,128
-        !$ACC DATA COPYIN(elem_state_v_n0(*,*,*,k),elem_derived_phi(*,*,k),elem_state_T_n0(*,*,k),elem_derived_pecnd(*,*,k))
+        !!$ACC DATA COPYIN(elem_state_v_n0(*,*,*,k),elem_derived_phi(*,*,k),elem_state_T_n0(*,*,k),elem_derived_pecnd(*,*,k))
         do j=1,np
            do i=1,np
               v1     = elem_state_v_n0(i,j,1,k)
@@ -2703,29 +2705,29 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               p(i,j,k)  = -vgrad_T(i,j) + kappa*T_v(i,j,k)*omega_p(i,j,k)
            end do
         end do
-      !$ACC END DATA
+      !!$ACC END DATA
       end do ! end k
-      !$ACC END LOOP
-      !$ACC END DATA
+      !!$ACC END LOOP
+      !!$ACC END DATA
 
      ! =========================================================
      ! local element timestep, store in np1.
      ! note that we allow np1=n0 or nm1
      ! apply mass matrix
      ! =========================================================
-        !$ACC DATA copyin(elem_spheremp,elem_state_ps_v_nm1) copyout(elem_state_ps_v_np1)
+        !!$ACC DATA copyin(elem_spheremp,elem_state_ps_v_nm1) copyout(elem_state_ps_v_np1)
         do k=65,128
-           !$ACC DATA copyin(elem_state_v_nm1(*,*,*,k),elem_state_T_nm1(*,*,k),elem_state_dp3d_nm1(*,*,k)) copyout(elem_state_v_np1(*,*,*,k),elem_state_T_np1(*,*,k),elem_state_dp3d_np1(*,*,k))
+           !!$ACC DATA copyin(elem_state_v_nm1(*,*,*,k),elem_state_T_nm1(*,*,k),elem_state_dp3d_nm1(*,*,k)) copyout(elem_state_v_np1(*,*,*,k),elem_state_T_np1(*,*,k),elem_state_dp3d_np1(*,*,k))
            elem_state_v_np1(:,:,1,k) = elem_spheremp(:,:)*( elem_state_v_nm1(:,:,1,k) + dt2*grad_p(:,:,1,k) )
            elem_state_v_np1(:,:,2,k) = elem_spheremp(:,:)*( elem_state_v_nm1(:,:,2,k) + dt2*grad_p(:,:,2,k) )
            elem_state_T_np1(:,:,k) = elem_spheremp(:,:)*(elem_state_T_nm1(:,:,k) + dt2*p(:,:,k))
            elem_state_dp3d_np1(:,:,k) = elem_spheremp(:,:)* (elem_state_dp3d_nm1(:,:,k)-dt2*divdp(:,:,k) )
-           !$ACC END DATA
+           !!$ACC END DATA
         enddo
         elem_state_ps_v_np1(:,:) = elem_spheremp(:,:)*( elem_state_ps_v_nm1(:,:))
-        !$ACC END DATA
+        !!$ACC END DATA
    enddo
-   !$ACC END PARALLEL LOOP
+   !!$ACC END PARALLEL LOOP
   
 
   !!$ACC PARALLEL LOOP local(omega_p(*,*,1:64),T_v(*,*,1:64),divdp(*,*,1:64),vtemp,vgrad_T,Ephi,grad_ps,vort(*,*,1:64),dp(*,*,1:64),vgrad_p(*,*,1:64),p(*,*,1:64),grad_p(*,*,*,1:64),suml(*,*,1:64)) copyin(hvcoord_hyai,deriv_dvv,elem_array) annotate(entire(deriv_dvv,hvcoord_hyai))
