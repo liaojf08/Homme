@@ -2216,27 +2216,25 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
       enddo
   end subroutine
 
-  subroutine my_preq_omega_ps(omega_p,p,vgrad_p,divdp)
+  subroutine my_preq_omega_ps(omega_p,p,vgrad_p,divdp,suml)
     implicit none
 
     real(kind=8), intent(in) :: divdp(4,4,constLev)      ! divergence
     real(kind=8), intent(in) :: vgrad_p(4,4,constLev) ! v.grad(p)
     real(kind=8), intent(in) :: p(4,4,constLev)     ! layer thicknesses (pressure)
     real(kind=8), intent(out):: omega_p(4,4,constLev)   ! vertical pressure velocity
+    real(kind=8), intent(in) :: suml(4,4,constLev+1)      ! partial sum over l = (1, k-1)
 
     integer i,j,k                         ! longitude, level indices
     real(kind=8) term             ! one half of basic term in omega/p summation
     real(kind=8) Ckk,Ckl          ! diagonal term of energy conversion matrix
-    real(kind=8) suml(4,4)      ! partial sum over l = (1, k-1)
 
-    suml(:,:) = 0
     do k=1,constLev
       do j=1,4   !   Loop inversion (AAM)
         do i=1,4
           ckk = 0.5d0/p(i,j,k)
           ckl = 2*ckk
-          omega_p(i,j,k) = vgrad_p(i,j,k)/p(i,j,k) - ckl*suml(i,j) - ckk*divdp(i,j,k)
-          suml(i,j) = suml(i,j) + divdp(i,j,k)
+          omega_p(i,j,k) = vgrad_p(i,j,k)/p(i,j,k) - ckl*suml(i,j,k) - ckk*divdp(i,j,k)
         end do
       end do
     enddo
@@ -2410,7 +2408,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   ! local
   real (kind=8), dimension(np,np,nlev)   :: omega_p
-  real (kind=8), dimension(np,np,nlev)   :: T_v
+  !real (kind=8), dimension(np,np,nlev)   :: T_v
   real (kind=8), dimension(np,np,nlev)   :: divdp
   real (kind=8), dimension(np,np,2)      :: vtemp
   real (kind=8), dimension(np,np)        :: vgrad_T
@@ -2419,8 +2417,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=8), dimension(np,np,2,nlev) :: grad_p
   real (kind=8), dimension(np,np,nlev)   :: vort
   real (kind=8), dimension(np,np,nlev)   :: p
-  real (kind=8), dimension(np,np,nlev)   :: dp
+  !real (kind=8), dimension(np,np,nlev)   :: dp
   real (kind=8), dimension(np,np,nlev)   :: vgrad_p
+  real (kind=8), dimension(np,np,nlev+1)   :: suml 
 
   real (kind=8) ::  cp2,cp_ratio,E,de,Qt,v1,v2
   real (kind=8) ::  glnps1,glnps2,gpterm
@@ -2542,16 +2541,15 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      !!$ACC DATA copyin(elem_Dinv,elem_metdet,elem_rmetdet,elem_D)
      !!$ACC LOOP
      do k=1,nlev
-     !!$ACC DATA copyin(elem_state_v_n0(*,*,*,k)) copy(elem_derived_vn0(*,*,*,k))
+     !!$ACC DATA copyin(elem_state_dp3d_n0(*,*,k),elem_state_v_n0(*,*,*,k)) copy(elem_derived_vn0(*,*,*,k))
            if (k==1) then
               p(:,:,k)=hvcoord_hyai(k)*hvcoord_ps0 + elem_state_dp3d_n0(:,:,k)/2
            else
               p(:,:,k)=p(:,:,k-1) + elem_state_dp3d_n0(:,:,k-1)/2 + elem_state_dp3d_n0(:,:,k)/2
            endif
-           !grad_p(:,:,:,k) = gradient_sphere(p(:,:,k),deriv,elem_Dinv)
-          call my_gradient_sphere(p(:,:,k),deriv_Dvv(:,:),elem_Dinv(:,:,:,:),grad_p(:,:,:,k),my_rrearth)
-
-
+      enddo
+      do k = 1, nlev
+        call my_gradient_sphere(p(:,:,k),deriv_Dvv(:,:),elem_Dinv(:,:,:,:),grad_p(:,:,:,k),my_rrearth)
         do j=1,np
            do i=1,np
               v1 = elem_state_v_n0(i,j,1,k)
@@ -2561,31 +2559,23 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               vtemp(i,j,2) = v2*elem_state_dp3d_n0(i,j,k)
            end do
         end do
-
-
-
         elem_derived_vn0(:,:,:,k)=elem_derived_vn0(:,:,:,k)+eta_ave_w*vtemp(:,:,:)
-
         ! edit by conghui
         call my_divergence_sphere(vtemp(:,:,:),deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),my_rrearth, divdp(:,:,k))
+
         call my_vorticity_sphere(elem_state_v_n0(:,:,:,k),deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vort(:,:,k))
         !!$ACC END DATA
      enddo
      !!$ACC END LOOP
      !!$ACC END DATA
 
-       ! do k=1,nlev
-       !    do j=1,np
-       !       do i=1,np
-       !          T_v(i,j,k) = elem(ie)%state%T(i,j,k,n0)
-       !       end do
-       !    end do
-       ! end do
-
-
+     suml(:,:,1) = 0
+     do k=1,nlev  
+       suml(:,:,k+1) = suml(:,:,k) + divdp(:,:,k)
+     enddo
      !!$ACC DATA COPYIN(elem_state_phis) COPYOUT(elem_derived_phi)
      call my_preq_hydrostatic(elem_derived_phi(:,:,:),elem_state_phis(:,:),elem_state_T_n0,p(:,:,:),elem_state_dp3d_n0(:,:,:),Rgas)
-     call my_preq_omega_ps(omega_p(:,:,:),p(:,:,:),vgrad_p(:,:,:),divdp(:,:,:))
+     call my_preq_omega_ps(omega_p(:,:,:),p(:,:,:),vgrad_p(:,:,:),divdp(:,:,:),suml)
      !!$ACC END DATA
 
      do k=1,nlev  !  Loop index added (AAM)
