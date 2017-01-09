@@ -1394,7 +1394,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     integer :: iee, k, q, i
     integer(kind=8) :: count_start, count_stop, count_max, count_rate
 
-    !!$ACC PARALLEL LOOP collapse(2)
+    !$ACC PARALLEL LOOP collapse(2)
     do iee = nets , nete
       do q = 1, qsize
         !iee = calList(i)
@@ -1426,7 +1426,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         neast_buf_ptr      = loc(edge_buf((q-1)*nlev+1, getmapP(8) + 1))
         nwest_buf_ptr      = loc(edge_buf((q-1)*nlev+1, getmapP(7) + 1))
 
-        !!$ACC DATA copy(elem_state_Qdp) copyin(getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf, elem_rspheremp)
+        !$ACC DATA copy(elem_state_Qdp) copyin(getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf, elem_rspheremp)
         call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, getmapP(:), &
           elem_state_Qdp(:,:,:), nlev, (q-1)*nlev, my_swest, my_max_corner_elem, &
           swest_buf, seast_buf, neast_buf, nwest_buf, &
@@ -1439,13 +1439,13 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           elem_state_Qdp(:,:,k) = elem_rspheremp(:,:) * elem_state_Qdp(:,:,k)
         enddo
 
-        !!$ACC END DATA
+        !$ACC END DATA
       end do
     end do
-    !!$ACC END PARALLEL LOOP
+    !$ACC END PARALLEL LOOP
 
     if (DSSopt == DSSeta) then
-      !!$ACC PARALLEL LOOP
+      !$ACC PARALLEL LOOP
       do iee = nets, nete
         !iee = calList(i) 
         elem_derived_eta_dot_dpdn_ptr = loc(my_elem(iee)%derived%eta_dot_dpdn)
@@ -1476,7 +1476,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         neast_buf_ptr                 = loc(edge_buf(qsize*nlev+1, getmapP(8) + 1))
         nwest_buf_ptr                 = loc(edge_buf(qsize*nlev+1, getmapP(7) + 1))
 
-        !!$ACC DATA copy(elem_derived_eta_dot_dpdn) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
+        !$ACC DATA copy(elem_derived_eta_dot_dpdn) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
         call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, getmapP(:), &
           elem_derived_eta_dot_dpdn(:,:,:), nlev, qsize*nlev, my_swest, my_max_corner_elem, &
           swest_buf(:), seast_buf(:), neast_buf(:), nwest_buf(:), &
@@ -1488,12 +1488,12 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         do k = 1, nlev
           elem_derived_eta_dot_dpdn(:,:,k) = elem_derived_eta_dot_dpdn(:,:,k) * elem_rspheremp(:,:)
         end do
-        !!$ACC END DATA
+        !$ACC END DATA
       end do !end ie
-      !!$ACC END PARALLEL LOOP
+      !$ACC END PARALLEL LOOP
 
     else if (DSSopt == DSSomega) then
-      !!$ACC PARALLEL LOOP
+      !$ACC PARALLEL LOOP
       do iee = nets, nete
         !iee = calList(i) 
         elem_derived_omega_p_ptr = loc(my_elem(iee)%derived%omega_p)
@@ -1524,7 +1524,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         neast_buf_ptr            = loc(edge_buf(qsize*nlev+1, getmapP(8) + 1))
         nwest_buf_ptr            = loc(edge_buf(qsize*nlev+1, getmapP(7) + 1))
 
-        !!$ACC DATA copy(elem_derived_omega_p) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
+        !$ACC DATA copy(elem_derived_omega_p) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
         call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, getmapP(:), &
           elem_derived_omega_p(:,:,:), nlev, qsize*nlev, my_swest, my_max_corner_elem, &
           swest_buf(:), seast_buf(:), neast_buf(:), nwest_buf(:), &
@@ -1536,13 +1536,13 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         do k = 1, nlev
           elem_derived_omega_p(:,:,k) = elem_derived_omega_p(:,:,k) * elem_rspheremp(:,:)
         end do
-        !!$ACC END DATA
+        !$ACC END DATA
       end do
 
     else if (DSSopt == DSSdiv_vdp_ave) then
       !call system_clock(count_start, count_rate, count_max)
 
-      !!$ACC PARALLEL LOOP
+      !$ACC PARALLEL LOOP
       do iee = nets, nete
         !iee = calList(i) 
         elem_derived_divdp_proj_ptr = loc(my_elem(iee)%derived%divdp_proj)
@@ -1573,7 +1573,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         neast_buf_ptr               = loc(edge_buf(qsize*nlev+1, getmapP(8) + 1))
         nwest_buf_ptr               = loc(edge_buf(qsize*nlev+1, getmapP(7) + 1))
 
-        !!$ACC DATA copy(elem_derived_divdp_proj) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
+        !$ACC DATA copy(elem_derived_divdp_proj) copyin(elem_rspheremp,getmapP,is,ie,iw,in,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
         call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, getmapP(:), &
           elem_derived_divdp_proj(:,:,:), nlev, qsize*nlev, my_swest, my_max_corner_elem, &
           swest_buf(:), seast_buf(:), neast_buf(:), nwest_buf(:), &
@@ -1585,10 +1585,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         do k = 1, nlev
           elem_derived_divdp_proj(:,:,k) = elem_derived_divdp_proj(:,:,k) * elem_rspheremp(:,:)
         end do
-        !!$ACC END DATA
+        !$ACC END DATA
 
       end do
-      !!$ACC END PARALLEL LOOP
+      !$ACC END PARALLEL LOOP
 
       !call system_clock(count_stop, count_rate, count_max)
       !write(*,*), 'acc count = ', count_stop - count_start
@@ -2305,11 +2305,11 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   pointer(edge_buf_iw_4_ptr, edge_buf_iw_4)
 
 
-      !!$ACC PARALLEL LOOP collapse(2) 
+      !$ACC PARALLEL LOOP collapse(2) 
       do ie = nets , nete
           do q = 1,my_qsize
             !!ie = calList(iee)
-            !!$ACC DATA COPYIN(pack_elem_array(*,ie),pack_buf_array(*,q,ie))
+            !$ACC DATA COPYIN(pack_elem_array(*,ie),pack_buf_array(*,q,ie))
             elem_state_Qdp_ptr            = pack_elem_array(4,ie)
             elem_desc_reverse_south_ptr   = pack_elem_array(6,ie)
             elem_desc_reverse_north_ptr   = pack_elem_array(7,ie)
@@ -2336,7 +2336,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             edge_buf_iw_2_ptr = pack_buf_array(18,q,ie)
             edge_buf_iw_3_ptr = pack_buf_array(19,q,ie)
             edge_buf_iw_4_ptr = pack_buf_array(20,q,ie)
-            !!$ACC DATA COPYIN(elem_state_Qdp(*,*,*,q), elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, elem_desc_reverse_south,elem_desc_reverse_north,elem_desc_reverse_east,elem_desc_reverse_west,elem_desc_putmapP) COPY(edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4,  edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+            !$ACC DATA COPYIN(elem_state_Qdp(*,*,*,q), elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, elem_desc_reverse_south,elem_desc_reverse_north,elem_desc_reverse_east,elem_desc_reverse_west,elem_desc_putmapP) COPY(edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4,  edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
             call my_edgeVpack_acc(elem_state_Qdp(:,:,:,q) , my_nlev , my_nlev*(q-1) , elem_desc_putmapP(:), &
              elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
              edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
@@ -2344,89 +2344,170 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-           !!$ACC END DATA
-           !!$ACC END DATA
+           !$ACC END DATA
+           !$ACC END DATA
         enddo
      enddo
-     !!$ACC END PARALLEL LOOP
-     !!$ACC PARALLEL LOOP  
-     do ie = nets, nete 
-        !ie = calList(iee)
-        q=my_qsize+1
-        !!$ACC DATA COPYIN(pack_elem_array(*,ie), pack_buf_array(*,q,ie))
-        elem_derived_eta_dot_dpdn_ptr = pack_elem_array(1,ie)
-        elem_derived_omega_p_ptr      = pack_elem_array(2,ie)
-        elem_derived_divdp_proj_ptr   = pack_elem_array(3,ie)
-        elem_state_Qdp_ptr            = pack_elem_array(4,ie)
-        elem_spheremp_ptr             = pack_elem_array(5,ie)
-        elem_desc_reverse_south_ptr   = pack_elem_array(6,ie)
-        elem_desc_reverse_north_ptr   = pack_elem_array(7,ie)
-        elem_desc_reverse_east_ptr    = pack_elem_array(8,ie)
-        elem_desc_reverse_west_ptr    = pack_elem_array(9,ie)
-        elem_desc_putmapP_ptr         = pack_elem_array(10,ie)
-        edge_buf_in_1_ptr = pack_buf_array(1,q,ie)
-        edge_buf_in_2_ptr = pack_buf_array(2,q,ie)
-        edge_buf_in_3_ptr = pack_buf_array(3,q,ie)
-        edge_buf_in_4_ptr = pack_buf_array(4,q,ie)
-        edge_buf_5_ptr    = pack_buf_array(5,q,ie)
-        edge_buf_6_ptr    = pack_buf_array(6,q,ie)
-        edge_buf_7_ptr    = pack_buf_array(7,q,ie)
-        edge_buf_8_ptr    = pack_buf_array(8,q,ie)
-        edge_buf_is_1_ptr = pack_buf_array(9,q,ie)
-        edge_buf_is_2_ptr = pack_buf_array(10,q,ie)
-        edge_buf_is_3_ptr = pack_buf_array(11,q,ie)
-        edge_buf_is_4_ptr = pack_buf_array(12,q,ie)
-        edge_buf_ie_1_ptr = pack_buf_array(13,q,ie)
-        edge_buf_ie_2_ptr = pack_buf_array(14,q,ie)
-        edge_buf_ie_3_ptr = pack_buf_array(15,q,ie)
-        edge_buf_ie_4_ptr = pack_buf_array(16,q,ie)
-        edge_buf_iw_1_ptr = pack_buf_array(17,q,ie)
-        edge_buf_iw_2_ptr = pack_buf_array(18,q,ie)
-        edge_buf_iw_3_ptr = pack_buf_array(19,q,ie)
-        edge_buf_iw_4_ptr = pack_buf_array(20,q,ie)
-        !!$ACC DATA COPYIN(elem_desc_reverse_south, elem_desc_reverse_north, elem_desc_reverse_east, elem_desc_reverse_west,  elem_spheremp, elem_desc_putmapP) COPY(elem_derived_eta_dot_dpdn, elem_derived_omega_p, elem_derived_divdp_proj, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-      if (DSSopt == 1) then
-        do k = 1 , my_nlev
-          elem_derived_eta_dot_dpdn(:,:,k) = elem_spheremp(:,:) * elem_derived_eta_dot_dpdn(:,:,k)
-        enddo
-        call my_edgeVpack_acc(  elem_derived_eta_dot_dpdn(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP(:), &
-         elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
-         edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
-         edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
-         edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
-         edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
-         edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-      endif
+     !$ACC END PARALLEL LOOP
 
-      if (DSSopt == 2) then
-        do k = 1 , my_nlev
-          elem_derived_omega_p(:,:,k) = elem_spheremp(:,:) * elem_derived_omega_p(:,:,k)
-        enddo
-        call my_edgeVpack_acc(  elem_derived_omega_p(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP, &
-         elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
-         edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
-         edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
-         edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
-         edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
-         edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-      endif
+     if (DSSopt == 1) then
+       !$ACC PARALLEL LOOP  
+       do ie = nets, nete 
+          !ie = calList(iee)
+          q=my_qsize+1
+          !$ACC DATA COPYIN(pack_elem_array(*,ie), pack_buf_array(*,q,ie))
+          elem_derived_eta_dot_dpdn_ptr = pack_elem_array(1,ie)
+          elem_state_Qdp_ptr            = pack_elem_array(4,ie)
+          elem_spheremp_ptr             = pack_elem_array(5,ie)
+          elem_desc_reverse_south_ptr   = pack_elem_array(6,ie)
+          elem_desc_reverse_north_ptr   = pack_elem_array(7,ie)
+          elem_desc_reverse_east_ptr    = pack_elem_array(8,ie)
+          elem_desc_reverse_west_ptr    = pack_elem_array(9,ie)
+          elem_desc_putmapP_ptr         = pack_elem_array(10,ie)
+          edge_buf_in_1_ptr = pack_buf_array(1,q,ie)
+          edge_buf_in_2_ptr = pack_buf_array(2,q,ie)
+          edge_buf_in_3_ptr = pack_buf_array(3,q,ie)
+          edge_buf_in_4_ptr = pack_buf_array(4,q,ie)
+          edge_buf_5_ptr    = pack_buf_array(5,q,ie)
+          edge_buf_6_ptr    = pack_buf_array(6,q,ie)
+          edge_buf_7_ptr    = pack_buf_array(7,q,ie)
+          edge_buf_8_ptr    = pack_buf_array(8,q,ie)
+          edge_buf_is_1_ptr = pack_buf_array(9,q,ie)
+          edge_buf_is_2_ptr = pack_buf_array(10,q,ie)
+          edge_buf_is_3_ptr = pack_buf_array(11,q,ie)
+          edge_buf_is_4_ptr = pack_buf_array(12,q,ie)
+          edge_buf_ie_1_ptr = pack_buf_array(13,q,ie)
+          edge_buf_ie_2_ptr = pack_buf_array(14,q,ie)
+          edge_buf_ie_3_ptr = pack_buf_array(15,q,ie)
+          edge_buf_ie_4_ptr = pack_buf_array(16,q,ie)
+          edge_buf_iw_1_ptr = pack_buf_array(17,q,ie)
+          edge_buf_iw_2_ptr = pack_buf_array(18,q,ie)
+          edge_buf_iw_3_ptr = pack_buf_array(19,q,ie)
+          edge_buf_iw_4_ptr = pack_buf_array(20,q,ie)
+          !$ACC DATA COPYIN(elem_desc_reverse_south, elem_desc_reverse_north, elem_desc_reverse_east, elem_desc_reverse_west,  elem_spheremp, elem_desc_putmapP) COPY(elem_derived_eta_dot_dpdn, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+          do k = 1 , my_nlev
+            elem_derived_eta_dot_dpdn(:,:,k) = elem_spheremp(:,:) * elem_derived_eta_dot_dpdn(:,:,k)
+          enddo
+          call my_edgeVpack_acc(  elem_derived_eta_dot_dpdn(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP(:), &
+           elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
+           edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
+           edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
+           edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+           edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+           edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        !$ACC END DATA
+        !$ACC END DATA
+      enddo
+      !$ACC END PARALLEL LOOP
+    endif
 
-      if (DSSopt == 3) then
-        do k = 1 , my_nlev
-          elem_derived_divdp_proj(:,:,k) = elem_spheremp(:,:) * elem_derived_divdp_proj(:,:,k)
-        enddo
-        call my_edgeVpack_acc(  elem_derived_divdp_proj(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP, &
-         elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
-         edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
-         edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
-         edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
-         edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
-         edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-      endif
-      !!$ACC END DATA
-      !!$ACC END DATA
-    enddo
-    !!$ACC END PARALLEL LOOP
+
+     if (DSSopt == 2) then
+       !$ACC PARALLEL LOOP  
+       do ie = nets, nete 
+          !ie = calList(iee)
+          q=my_qsize+1
+          !$ACC DATA COPYIN(pack_elem_array(*,ie), pack_buf_array(*,q,ie))
+          elem_derived_omega_p_ptr      = pack_elem_array(2,ie)
+          elem_state_Qdp_ptr            = pack_elem_array(4,ie)
+          elem_spheremp_ptr             = pack_elem_array(5,ie)
+          elem_desc_reverse_south_ptr   = pack_elem_array(6,ie)
+          elem_desc_reverse_north_ptr   = pack_elem_array(7,ie)
+          elem_desc_reverse_east_ptr    = pack_elem_array(8,ie)
+          elem_desc_reverse_west_ptr    = pack_elem_array(9,ie)
+          elem_desc_putmapP_ptr         = pack_elem_array(10,ie)
+          edge_buf_in_1_ptr = pack_buf_array(1,q,ie)
+          edge_buf_in_2_ptr = pack_buf_array(2,q,ie)
+          edge_buf_in_3_ptr = pack_buf_array(3,q,ie)
+          edge_buf_in_4_ptr = pack_buf_array(4,q,ie)
+          edge_buf_5_ptr    = pack_buf_array(5,q,ie)
+          edge_buf_6_ptr    = pack_buf_array(6,q,ie)
+          edge_buf_7_ptr    = pack_buf_array(7,q,ie)
+          edge_buf_8_ptr    = pack_buf_array(8,q,ie)
+          edge_buf_is_1_ptr = pack_buf_array(9,q,ie)
+          edge_buf_is_2_ptr = pack_buf_array(10,q,ie)
+          edge_buf_is_3_ptr = pack_buf_array(11,q,ie)
+          edge_buf_is_4_ptr = pack_buf_array(12,q,ie)
+          edge_buf_ie_1_ptr = pack_buf_array(13,q,ie)
+          edge_buf_ie_2_ptr = pack_buf_array(14,q,ie)
+          edge_buf_ie_3_ptr = pack_buf_array(15,q,ie)
+          edge_buf_ie_4_ptr = pack_buf_array(16,q,ie)
+          edge_buf_iw_1_ptr = pack_buf_array(17,q,ie)
+          edge_buf_iw_2_ptr = pack_buf_array(18,q,ie)
+          edge_buf_iw_3_ptr = pack_buf_array(19,q,ie)
+          edge_buf_iw_4_ptr = pack_buf_array(20,q,ie)
+          !$ACC DATA COPYIN(elem_desc_reverse_south, elem_desc_reverse_north, elem_desc_reverse_east, elem_desc_reverse_west,  elem_spheremp, elem_desc_putmapP) COPY(elem_derived_omega_p, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+
+          do k = 1 , my_nlev
+            elem_derived_omega_p(:,:,k) = elem_spheremp(:,:) * elem_derived_omega_p(:,:,k)
+          enddo
+          call my_edgeVpack_acc(  elem_derived_omega_p(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP, &
+           elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
+           edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
+           edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
+           edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+           edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+           edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+
+        !$ACC END DATA
+        !$ACC END DATA
+      enddo
+      !$ACC END PARALLEL LOOP
+    endif
+
+
+     if (DSSopt == 3) then
+       !$ACC PARALLEL LOOP  
+       do ie = nets, nete 
+          !ie = calList(iee)
+          q=my_qsize+1
+          !$ACC DATA COPYIN(pack_elem_array(*,ie), pack_buf_array(*,q,ie))
+          elem_derived_divdp_proj_ptr   = pack_elem_array(3,ie)
+          elem_state_Qdp_ptr            = pack_elem_array(4,ie)
+          elem_spheremp_ptr             = pack_elem_array(5,ie)
+          elem_desc_reverse_south_ptr   = pack_elem_array(6,ie)
+          elem_desc_reverse_north_ptr   = pack_elem_array(7,ie)
+          elem_desc_reverse_east_ptr    = pack_elem_array(8,ie)
+          elem_desc_reverse_west_ptr    = pack_elem_array(9,ie)
+          elem_desc_putmapP_ptr         = pack_elem_array(10,ie)
+          edge_buf_in_1_ptr = pack_buf_array(1,q,ie)
+          edge_buf_in_2_ptr = pack_buf_array(2,q,ie)
+          edge_buf_in_3_ptr = pack_buf_array(3,q,ie)
+          edge_buf_in_4_ptr = pack_buf_array(4,q,ie)
+          edge_buf_5_ptr    = pack_buf_array(5,q,ie)
+          edge_buf_6_ptr    = pack_buf_array(6,q,ie)
+          edge_buf_7_ptr    = pack_buf_array(7,q,ie)
+          edge_buf_8_ptr    = pack_buf_array(8,q,ie)
+          edge_buf_is_1_ptr = pack_buf_array(9,q,ie)
+          edge_buf_is_2_ptr = pack_buf_array(10,q,ie)
+          edge_buf_is_3_ptr = pack_buf_array(11,q,ie)
+          edge_buf_is_4_ptr = pack_buf_array(12,q,ie)
+          edge_buf_ie_1_ptr = pack_buf_array(13,q,ie)
+          edge_buf_ie_2_ptr = pack_buf_array(14,q,ie)
+          edge_buf_ie_3_ptr = pack_buf_array(15,q,ie)
+          edge_buf_ie_4_ptr = pack_buf_array(16,q,ie)
+          edge_buf_iw_1_ptr = pack_buf_array(17,q,ie)
+          edge_buf_iw_2_ptr = pack_buf_array(18,q,ie)
+          edge_buf_iw_3_ptr = pack_buf_array(19,q,ie)
+          edge_buf_iw_4_ptr = pack_buf_array(20,q,ie)
+          !$ACC DATA COPYIN(elem_desc_reverse_south, elem_desc_reverse_north, elem_desc_reverse_east, elem_desc_reverse_west,  elem_spheremp, elem_desc_putmapP) COPY(elem_derived_divdp_proj, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8) COPYOUT(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+
+          do k = 1 , my_nlev
+            elem_derived_divdp_proj(:,:,k) = elem_spheremp(:,:) * elem_derived_divdp_proj(:,:,k)
+          enddo
+          call my_edgeVpack_acc(  elem_derived_divdp_proj(:,:,:) , my_nlev , my_nlev*my_qsize , elem_desc_putmapP, &
+           elem_desc_reverse_north, elem_desc_reverse_south, elem_desc_reverse_east, elem_desc_reverse_west, &
+           edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
+           edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
+           edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+           edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+           edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        !$ACC END DATA
+        !$ACC END DATA
+      enddo
+      !$ACC END PARALLEL LOOP
+    endif
+
   end subroutine my_packCode_acc
 
   subroutine my_euler_initCal(my_nets,my_nete,my_qsize,my_nlev,my_hvcoord,my_qmin,my_qmax,Qtens_biharmonic,my_rhs_multiplier,my_dt,my_np,n0_qdp,initCal_array)

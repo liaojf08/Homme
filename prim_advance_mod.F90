@@ -2389,7 +2389,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
 
   implicit none
-  !!!$ACC routine memstack(size=409600; name=private_liaojf) reuseldm(size=49152)
+  !!$ACC routine memstack(size=409600; name=private_liaojf) reuseldm(size=49152)
 
   integer, parameter :: np = 4
   integer, parameter :: nlev = constLev 
@@ -2511,7 +2511,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   hvcoord_hyai_ptr = loc(hvcoord%hyai)
   deriv_Dvv_ptr    = loc(deriv%Dvv)
 
-  !!$ACC PARALLEL LOOP local(omega_p,divdp,vtemp,vgrad_T,Ephi,grad_ps,grad_p,vort,p,vgrad_p, suml, phii) copyin(hvcoord_hyai,deriv_dvv)  annotate(entire(deriv_dvv))
+  !$ACC PARALLEL LOOP local(omega_p,divdp,vtemp,vgrad_T,Ephi,grad_ps,grad_p,vort,p,vgrad_p, suml, phii) copyin(hvcoord_hyai,deriv_dvv)  annotate(entire(deriv_dvv))
   do ie=nets,nete
 
      elem_derived_phi_ptr          = elem_array(1,ie)
@@ -2538,26 +2538,26 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      elem_rmetdet_ptr              = elem_array(22,ie)
      elem_D_ptr                    = elem_array(23,ie)
 
-     !!$ACC DATA COPYIN(elem_array, elem_Dinv, elem_state_phis, elem_fcor, elem_spheremp, elem_state_ps_v_nm1, elem_metdet, elem_rmetdet, elem_D) copyout(elem_state_ps_v_np1) annotate(entire(deriv_dvv, elem_state_ps_v_nm1, elem_spheremp, elem_state_ps_v_np1, elem_fcor, elem_Dinv, elem_state_phis, elem_rmetdet, elem_D, elem_metdet))
+     !$ACC DATA COPYIN(elem_array, elem_Dinv, elem_state_phis, elem_fcor, elem_spheremp, elem_state_ps_v_nm1, elem_metdet, elem_rmetdet, elem_D) copyout(elem_state_ps_v_np1) annotate(entire(deriv_dvv, elem_state_ps_v_nm1, elem_spheremp, elem_state_ps_v_np1, elem_fcor, elem_Dinv, elem_state_phis, elem_rmetdet, elem_D, elem_metdet))
      !phi => elem_derived_phi
      suml(:,:)= 0
      phii(:,:,nlev+1) = 0
      do k=1,nlev
-           !!$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k))
+           !$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k))
            if (k /= 1) then
              p(:,:,k)=p(:,:,k-1) + elem_state_dp3d_n0(:,:,k-1)/2 + elem_state_dp3d_n0(:,:,k)/2
            else
              p(:,:,1)=hvcoord_hyai(1)*hvcoord_ps0 + elem_state_dp3d_n0(:,:,1)/2
            endif
-           !!$ACC END DATA
+           !$ACC END DATA
      enddo
      do k=nlev,1,-1
-        !!$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k),elem_state_T_n0(*,*,k))
+        !$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k),elem_state_T_n0(*,*,k))
         phii(:,:,k) = phii(:,:,k+1) + Rgas*elem_state_T_n0(:,:,k)*elem_state_dp3d_n0(:,:,k)*0.5d0/p(:,:,k)*2
-        !!$ACC END DATA
+        !$ACC END DATA
      enddo
      do k = 1, nlev
-       !!$ACC DATA COPYIN(elem_state_dp3d_nm1(*,*,k), elem_state_v_n0(*,*,*,k), elem_state_v_nm1(*,*,*,k), elem_state_T_nm1(*,*,k), elem_derived_pecnd(*,*,k)) copyout(elem_derived_phi(*,*,k), elem_state_dp3d_np1(*,*,k), elem_state_v_np1(*,*,*,k), elem_state_T_np1(*,*,k)) copy(elem_derived_vn0(*,*,*,k), elem_derived_omega_p(*,*,k))
+       !$ACC DATA COPYIN(elem_state_dp3d_nm1(*,*,k), elem_state_v_n0(*,*,*,k), elem_state_v_nm1(*,*,*,k), elem_state_T_nm1(*,*,k), elem_derived_pecnd(*,*,k)) copyout(elem_derived_phi(*,*,k), elem_state_dp3d_np1(*,*,k), elem_state_v_np1(*,*,*,k), elem_state_T_np1(*,*,k)) copy(elem_derived_vn0(*,*,*,k), elem_derived_omega_p(*,*,k))
        call my_gradient_sphere(p(:,:,k),deriv_Dvv(:,:),elem_Dinv(:,:,:,:),grad_p(:,:,:),my_rrearth)
        do j=1,np
          do i=1,np
@@ -2628,12 +2628,12 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
         elem_state_v_np1(:,:,2,k) = elem_spheremp(:,:)*( elem_state_v_nm1(:,:,2,k) + dt2*grad_p(:,:,2) )
         elem_state_T_np1(:,:,k) = elem_spheremp(:,:)*(elem_state_T_nm1(:,:,k) + dt2*p(:,:,k))
         elem_state_dp3d_np1(:,:,k) = elem_spheremp(:,:)* (elem_state_dp3d_nm1(:,:,k)-dt2*divdp(:,:) )
-        !!$ACC END DATA
+        !$ACC END DATA
       enddo
       elem_state_ps_v_np1(:,:) = elem_spheremp(:,:)*( elem_state_ps_v_nm1(:,:))
-      !!$ACC END DATA
+      !$ACC END DATA
     enddo
-    !!$ACC END PARALLEL LOOP
+    !$ACC END PARALLEL LOOP
   end subroutine my_advance_acc
 
   subroutine compute_and_apply_rhs(np1,nm1,n0,qn0,dt2,elem,hvcoord,hybrid,&
