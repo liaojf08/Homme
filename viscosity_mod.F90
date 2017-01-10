@@ -398,7 +398,7 @@ subroutine my_edgeVunpack_viscosity_all(nets, nete, edge_nlyr, edge_nbuf, &
 
   !call system_clock(count_start)
 
-  !!$ACC PARALLEL LOOP copy(ptens, vtens,dptens) 
+  !$ACC PARALLEL LOOP copy(ptens,dptens) 
   do iee=nets,nete
 
     getmapP_ptr = loc(my_elem(iee)%desc%getmapP)
@@ -418,6 +418,7 @@ subroutine my_edgeVunpack_viscosity_all(nets, nete, edge_nlyr, edge_nbuf, &
     edge_buf_in_ptr = loc(edge_buf(:,in+1:in+4))
 
     !!$ACC DATA copyin(getmapP, is, ie, iw, in, swest_buf, seast_buf, neast_buf, nwest_buf, edge_buf_is, edge_buf_in, edge_buf_ie, edge_buf_iw)
+    !$ACC DATA copyin(getmapP, is, ie, iw, in, swest_buf, seast_buf, neast_buf, nwest_buf)
     kptr=0
     call my_edgeVunpack_viscosity(edge_nlyr, edge_nbuf, &
       getmapP(:), &
@@ -425,6 +426,38 @@ subroutine my_edgeVunpack_viscosity_all(nets, nete, edge_nlyr, edge_nbuf, &
       swest_buf, seast_buf, neast_buf, nwest_buf, &
       edge_buf_is, edge_buf_iw, edge_buf_ie, edge_buf_in)
 
+    kptr=3*my_nlev
+    call my_edgeVunpack_viscosity(edge_nlyr, edge_nbuf, &
+      getmapP(:), &
+      dptens(:,:,:,iee), my_nlev, kptr, my_swest, my_max_corner_elem, &
+      swest_buf, seast_buf, neast_buf, nwest_buf, &
+      edge_buf_is, edge_buf_iw, edge_buf_ie, edge_buf_in)
+    
+    !$ACC END DATA
+  end do
+  !$ACC END PARALLEL LOOP
+    
+  !$ACC PARALLEL LOOP copy(vtens) 
+  do iee=nets,nete
+
+    getmapP_ptr = loc(my_elem(iee)%desc%getmapP)
+    is_ptr = loc(my_elem(iee)%desc%getmapP(my_south))
+    ie_ptr = loc(my_elem(iee)%desc%getmapP(my_east))
+    iw_ptr = loc(my_elem(iee)%desc%getmapP(my_west))
+    in_ptr = loc(my_elem(iee)%desc%getmapP(my_north))
+
+    swest_buf_ptr = loc(edge_buf(:, getmapP(5) + 1))
+    seast_buf_ptr = loc(edge_buf(:, getmapP(6) + 1))
+    neast_buf_ptr = loc(edge_buf(:, getmapP(8) + 1))
+    nwest_buf_ptr = loc(edge_buf(:, getmapP(7) + 1))
+
+    edge_buf_is_ptr = loc(edge_buf(:,is+1:is+4))
+    edge_buf_iw_ptr = loc(edge_buf(:,iw+1:iw+4))
+    edge_buf_ie_ptr = loc(edge_buf(:,ie+1:ie+4))
+    edge_buf_in_ptr = loc(edge_buf(:,in+1:in+4))
+  
+    !!$ACC DATA copyin(getmapP, is, ie, iw, in, swest_buf, seast_buf, neast_buf, nwest_buf, edge_buf_is, edge_buf_in, edge_buf_ie, edge_buf_iw)
+    !$ACC DATA copyin(getmapP, is, ie, iw, in, swest_buf, seast_buf, neast_buf, nwest_buf)
     kptr=my_nlev
     call my_edgeVunpack_viscosity(edge_nlyr, edge_nbuf, &
       getmapP(:), &
@@ -432,17 +465,9 @@ subroutine my_edgeVunpack_viscosity_all(nets, nete, edge_nlyr, edge_nbuf, &
       swest_buf, seast_buf, neast_buf, nwest_buf, &
       edge_buf_is, edge_buf_iw, edge_buf_ie, edge_buf_in)
 
-
-    kptr=3*my_nlev
-    call my_edgeVunpack_viscosity(edge_nlyr, edge_nbuf, &
-      getmapP(:), &
-      dptens(:,:,:,iee), my_nlev, kptr, my_swest, my_max_corner_elem, &
-      swest_buf, seast_buf, neast_buf, nwest_buf, &
-      edge_buf_is, edge_buf_iw, edge_buf_ie, edge_buf_in)
-
-    !!$ACC END DATA
+    !$ACC END DATA
   end do
-  !!$ACC END PARALLEL LOOP
+  !$ACC END PARALLEL LOOP
 
   !call system_clock(count_stop, count_rate, count_max)
   !write(*,*) 'normal count = ', (count_stop - count_start)
@@ -2304,13 +2329,12 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
   pointer(edge_buf_in_3_ptr, edge_buf_in_3)
   pointer(edge_buf_in_4_ptr, edge_buf_in_4)
 
-  !!$ACC PARALLEL LOOP collapse(2) tile(q:5) local(qmin, qmax) copy(emin, emax)
+  !$ACC PARALLEL LOOP collapse(2) tile(q:3) local(qmin) copy(emin)
   do iee = nets , nete
     do q = 1, my_qsize
 
       do k=1,constLev
         Qmin(:,:,k)=emin(k,q,iee) ! restore element data.  we could avoid
-        Qmax(:,:,k)=emax(k,q,iee) ! this by adding a "iee" index to Qmin/max
       enddo
 
       getmapP_ptr        = loc(my_elem(iee)%desc%getmapP)
@@ -2318,7 +2342,7 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
       ie_ptr             = loc(my_elem(iee)%desc%getmapP(my_east))
       iw_ptr             = loc(my_elem(iee)%desc%getmapP(my_west))
       in_ptr             = loc(my_elem(iee)%desc%getmapP(my_north))
-      !!$ACC DATA copyin(getmapP,is,ie,iw,in)
+      !$ACC DATA copyin(getmapP,is,ie,iw,in)
 
       edge_buf_is_1_ptr  = loc(edge_buf((q-1)*constLev+1, is + 1))
       edge_buf_is_2_ptr  = loc(edge_buf((q-1)*constLev+1, is + 2))
@@ -2341,7 +2365,7 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
       neast_buf_ptr      = loc(edge_buf((q-1)*constLev+1, getmapP(8) + 1))
       nwest_buf_ptr      = loc(edge_buf((q-1)*constLev+1, getmapP(7) + 1))
 
-      !!$ACC DATA copyin(edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
+      !$ACC DATA copyin(edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
       call my_edgeVunpack_min_bihamomic(edge_nlyr, edge_nbuf, getmapP(:), &
         Qmin(:,:,:), constLev, my_swest, my_max_corner_elem, &
         swest_buf, seast_buf, neast_buf, nwest_buf, &
@@ -2349,8 +2373,32 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
         edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
         edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
         edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
-      !!$ACC END DATA
+      !$ACC END DATA
+        do k=1,nlev
+           emin(k,q,iee)=min(qmin(1,1,k),qmin(1,np,k),qmin(np,1,k),qmin(np,np,k))
+           emin(k,q,iee)=max(emin(k,q,iee),0d0)
+        enddo
 
+      ! end for first part variables
+      !$ACC END DATA
+    end do !q
+  end do !ie
+  !$ACC END PARALLEL LOOP
+
+  !$ACC PARALLEL LOOP collapse(2) tile(q:3) local(qmax) copy(emax)
+  do iee = nets , nete
+    do q = 1, my_qsize
+
+      do k=1,constLev
+        Qmax(:,:,k)=emax(k,q,iee) ! this by adding a "iee" index to Qmin/max
+      enddo
+
+      getmapP_ptr        = loc(my_elem(iee)%desc%getmapP)
+      is_ptr             = loc(my_elem(iee)%desc%getmapP(my_south))
+      ie_ptr             = loc(my_elem(iee)%desc%getmapP(my_east))
+      iw_ptr             = loc(my_elem(iee)%desc%getmapP(my_west))
+      in_ptr             = loc(my_elem(iee)%desc%getmapP(my_north))
+      !$ACC DATA copyin(getmapP,is,ie,iw,in)
       edge_buf_is_1_ptr  = loc(edge_buf(my_qsize*constLev+(q-1)*constLev+1, is + 1))
       edge_buf_is_2_ptr  = loc(edge_buf(my_qsize*constLev+(q-1)*constLev+1, is + 2))
       edge_buf_is_3_ptr  = loc(edge_buf(my_qsize*constLev+(q-1)*constLev+1, is + 3))
@@ -2372,7 +2420,7 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
       neast_buf_ptr      = loc(edge_buf(my_qsize*constLev+(q-1)*constLev+1, getmapP(8) + 1))
       nwest_buf_ptr      = loc(edge_buf(my_qsize*constLev+(q-1)*constLev+1, getmapP(7) + 1))
 
-      !!$ACC DATA copyin(edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
+      !$ACC DATA copyin(edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,swest_buf,seast_buf,neast_buf,nwest_buf)
       call my_edgeVunpack_max_bihamomic(edge_nlyr, edge_nbuf, getmapP(:), &
         Qmax(:,:,:), constLev, my_swest, my_max_corner_elem, &
         swest_buf, seast_buf, neast_buf, nwest_buf, &
@@ -2380,19 +2428,17 @@ subroutine my_neighbor_minmax_after_bndry(nets, nete, edge_nlyr, edge_nbuf, &
         edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
         edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
         edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
-      !!$ACC END DATA
+      !$ACC END DATA
 
         do k=1,nlev
-           emin(k,q,iee)=min(qmin(1,1,k),qmin(1,np,k),qmin(np,1,k),qmin(np,np,k))
-           emin(k,q,iee)=max(emin(k,q,iee),0d0)
            emax(k,q,iee)=max(qmax(1,1,k),qmax(1,np,k),qmax(np,1,k),qmax(np,np,k))
         enddo
 
       ! end for first part variables
-      !!$ACC END DATA
+      !$ACC END DATA
     end do !q
   end do !ie
-  !!$ACC END PARALLEL LOOP
+  !$ACC END PARALLEL LOOP
 
 end subroutine
 
