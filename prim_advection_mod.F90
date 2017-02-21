@@ -95,8 +95,40 @@ module vertremap_mod
 
 !remap_calc_grids computes the vertical pressures and pressure differences for one vertical column for the reference grid
 !and for the deformed Lagrangian grid. This was pulled out of each routine since it was a repeated task.
-  subroutine my_vertical_remap_acc()
+  subroutine my_vertical_remap_acc(elem, hvcoord, ps0, my_nets, my_nete, my_nlev, my_qsize, my_np)
   
+  type (element_t), intent(inout)   :: elem(:)
+  type (hvcoord_t), intent(in)      :: hvcoord
+  !integer(kind=8), intent(in), dimension(7, my_nets:my_nete) :: elem_array
+  integer(kind=8), intent(in) :: my_nets, my_nete, my_nlev, my_qsize
+  real(kind=8) :: ps0
+
+
+  integer :: ie,i,j,k
+  real (kind=real_kind), dimension(my_np,my_np,my_nlev)  :: dp,dp_star
+  real (kind=real_kind), dimension(my_np,my_np,my_nlev,2)  :: ttmp
+
+  real(kind=8) :: elem_state_ps_v(my_np,my_np)
+  pointer(elem_state_ps_v_ptr, elem_state_ps_v)
+
+  real(kind=8) :: elem_state_dp3d(my_np,my_np,my_nlev)
+  pointer(elem_state_dp3d_ptr, elem_state_dp3d)
+
+  real(kind=8) :: elem_state_t(my_np,my_np,my_nlev)
+  pointer(elem_state_t_ptr, elem_state_t)
+
+  real(kind=8) :: elem_state_v(my_np,my_np,2,my_nlev)
+  pointer(elem_state_v_ptr, elem_state_v)
+
+  real(kind=8) :: elem_state_qdp(my_np,my_np,my_nlev,my_qsize)
+  pointer(elem_state_qdp_ptr, elem_state_qdp)
+
+  real(kind=8) :: hvcoord_hyai(nlev+1)
+  pointer(hvcoord_hyai_ptr, hvcoord_hyai)
+
+  real(kind=8) :: hvcoord_hybi(nlev+1)
+  pointer(hvcoord_hybi_ptr, hvcoord_hybi)
+
   do ie=nets,nete
         elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
              sum(elem(ie)%state%dp3d(:,:,:,np1),3)
@@ -3652,21 +3684,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   use vertremap_mod, only : remap1, remap1_nofilter, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
   use control_mod, only :  rsplit
   use parallel_mod, only : abortmp
-#if defined(_SPELT)
-  use spelt_mod, only: spelt_struct
-#else
   use fvm_control_volume_mod, only : fvm_struct
-#endif
 
-#if defined(_SPELT)
-  type(spelt_struct), intent(inout) :: fvm(:)
-  real (kind=real_kind) :: cdp(1:nep,1:nep,nlev,ntrac-1)
-  real (kind=real_kind)  :: psc(nep,nep), dpc(nep,nep,nlev),dpc_star(nep,nep,nlev)
-#else
   type(fvm_struct), intent(inout) :: fvm(:)
-  real (kind=real_kind) :: cdp(1:nc,1:nc,nlev,ntrac-1)
-  real (kind=real_kind)  :: psc(nc,nc), dpc(nc,nc,nlev),dpc_star(nc,nc,nlev)
-#endif
 
   !    type (hybrid_t), intent(in)       :: hybrid  ! distributed parallel structure (shared)
   type (element_t), intent(inout)   :: elem(:)
@@ -3677,8 +3697,22 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real (kind=real_kind), dimension(np,np,nlev)  :: dp,dp_star
   real (kind=real_kind), dimension(np,np,nlev,2)  :: ttmp
 
+  real(kind=real_kind) :: ps0
+
   call t_startf('vertical_remap')
-  call my_vertical_remap_acc()
+  do ie = nets, nete
+     elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
+     elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,np1))
+     elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,np1))
+     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,np1))
+     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1))
+     elem_array(6,ie) = loc(hvcoord%hyai(:)) 
+     elem_array(7,ie) = loc(hvcoord%hybi(:))
+  enddo
+  ps0 = hvcoord%ps0
+  call my_vertical_remap_acc(elem, ps0, nets, nete, nlev, qsize, np)
+      
+
 !  do ie=nets,nete
 !        elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
 !             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
