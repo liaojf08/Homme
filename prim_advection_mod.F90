@@ -3681,7 +3681,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   !
   use kinds, only : real_kind
   use hybvcoord_mod, only : hvcoord_t
-  use vertremap_mod, only : remap1, remap1_nofilter, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
+  use vertremap_mod, only : my_vertical_remap_acc, remap1, remap1_nofilter, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
   use control_mod, only :  rsplit
   use parallel_mod, only : abortmp
   use fvm_control_volume_mod, only : fvm_struct
@@ -3698,6 +3698,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real (kind=real_kind), dimension(np,np,nlev,2)  :: ttmp
 
   real(kind=real_kind) :: ps0
+  integer(kind=8), dimension(7, nets:nete) :: elem_array
 
   call t_startf('vertical_remap')
   do ie = nets, nete
