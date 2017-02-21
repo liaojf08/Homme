@@ -83,6 +83,7 @@ module vertremap_mod
   use parallel_mod, only           : abortmp
   use control_mod, only : vert_remap_q_alg
 
+  public my_vertical_remap_acc
   public remap1                  ! remap any field, splines, monotone
   public remap1_nofilter         ! remap any field, splines, no filter
 ! todo: tweak interface to match remap1 above, rename remap1_ppm:
@@ -94,6 +95,34 @@ module vertremap_mod
 
 !remap_calc_grids computes the vertical pressures and pressure differences for one vertical column for the reference grid
 !and for the deformed Lagrangian grid. This was pulled out of each routine since it was a repeated task.
+  subroutine my_vertical_remap_acc()
+  
+  do ie=nets,nete
+        elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
+             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+        do k=1,nlev
+           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
+           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+        enddo
+
+        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
+        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
+        call remap1(ttmp,np,1,dp_star,dp)
+        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
+
+        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
+        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
+        call remap1(ttmp,np,2,dp_star,dp)
+        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
+        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+
+        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+
+
+
+  enddo
+  end subroutine
 subroutine remap_calc_grids( hvcoord , ps , dt , eta_dot_dpdn , p_lag , p_ref , dp_lag , dp_ref )
   implicit none
   type(hvcoord_t)      , intent(in   ) :: hvcoord               !Derived type to hold vertical sigma grid parameters
@@ -3649,150 +3678,33 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real (kind=real_kind), dimension(np,np,nlev,2)  :: ttmp
 
   call t_startf('vertical_remap')
-
-  ! reference levels:
-  !   dp(k) = (hyai(k+1)-hyai(k))*ps0 + (hybi(k+1)-hybi(k))*ps_v(i,j)
-  !   hybi(1)=0          pure pressure at top of atmosphere
-  !   hyai(1)=ptop
-  !   hyai(nlev+1) = 0   pure sigma at bottom
-  !   hybi(nlev+1) = 1
-  !
-  ! sum over k=1,nlev
-  !  sum(dp(k)) = (hyai(nlev+1)-hyai(1))*ps0 + (hybi(nlev+1)-hybi(1))*ps_v
-  !             = -ps0 + ps_v
-  !  ps_v =  ps0+sum(dp(k))
-  !
-  ! reference levels:
-  !    dp(k) = (hyai(k+1)-hyai(k))*ps0 + (hybi(k+1)-hybi(k))*ps_v
-  ! floating levels:
-  !    dp_star(k) = dp(k) + dt_q*(eta_dot_dpdn(i,j,k+1) - eta_dot_dpdn(i,j,k) )
-  ! hence:
-  !    (dp_star(k)-dp(k))/dt_q = (eta_dot_dpdn(i,j,k+1) - eta_dot_dpdn(i,j,k) )
-  !
-  do ie=nets,nete
-     if (rsplit==0) then
-        ! compute dp_star from eta_dot_dpdn():
-        do k=1,nlev
-           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
-                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
-           dp_star(:,:,k) = dp(:,:,k) + dt*(elem(ie)%derived%eta_dot_dpdn(:,:,k+1) -&
-                elem(ie)%derived%eta_dot_dpdn(:,:,k))
-        enddo
-        if (minval(dp_star)<0) call abortmp('negative layer thickness.  timestep or remap time too large')
-     else
-        !  REMAP u,v,T from levels in dp3d() to REF levels
-        !
-        ! update final ps_v
-        elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
-             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
-        do k=1,nlev
-           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
-                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
-           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
-        enddo
-        if (minval(dp_star)<0) call abortmp('negative layer thickness.  timestep or remap time too large')
-
-        ! remap the dynamics:
-#undef REMAP_TE
-#ifdef REMAP_TE
-        ! remap u,v and cp*T + .5 u^2
-        ttmp(:,:,:,1)=(elem(ie)%state%v(:,:,1,:,np1)**2 + &
-             elem(ie)%state%v(:,:,2,:,np1)**2)/2 + &
-             elem(ie)%state%t(:,:,:,np1)*cp
-#else
-        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
-#endif
-        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
-        call remap1(ttmp,np,1,dp_star,dp)
-        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
-
-        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
-        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
-        call remap1(ttmp,np,2,dp_star,dp)
-!        call remap1_nofilter(ttmp,np,2,dp_star,dp)
-        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
-        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
-#ifdef REMAP_TE
-        ! back out T from TE
-        elem(ie)%state%t(:,:,:,np1) = &
-             ( elem(ie)%state%t(:,:,:,np1) - ( (elem(ie)%state%v(:,:,1,:,np1)**2 + &
-             elem(ie)%state%v(:,:,2,:,np1)**2)/2))/cp
-
-#endif
-     endif
-
-     ! remap the tracers from lagrangian levels (dp_star)  to REF levels dp
-     if (qsize>0) then
-        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
-     endif
-
-
-     if (ntrac>0) then
-#if defined(_SPELT)
-        do i=1,nep
-          do j=1,nep
-            sga=fvm(ie)%sga(i,j)
-            ! 1. compute surface pressure, 'ps_c', from SPELT air density
-            psc(i,j)=sum(fvm(ie)%c(i,j,:,1,np1))/sga +  hvcoord%hyai(1)*hvcoord%ps0
-            ! 2. compute dp_np1 using CSLAM air density and eta coordinate formula
-            ! get the dp now on the eta coordinates (reference level)
-            do k=1,nlev
-              dpc(i,j,k) = (hvcoord%hyai(k+1) - hvcoord%hyai(k))*hvcoord%ps0 + &
-                              (hvcoord%hybi(k+1) - hvcoord%hybi(k))*psc(i,j)
-              cdp(i,j,k,1:(ntrac-1))=fvm(ie)%c(i,j,k,2:ntrac,np1)*fvm(ie)%c(i,j,k,1,np1)/(sga*sga)
-              dpc_star(i,j,k)=fvm(ie)%c(i,j,k,1,np1)/sga
-            end do
-          end do
-        end do
-        call remap1(cdp,nep,ntrac-1,dpc_star,dpc)
-        do i=1,nep
-          do j=1,nep
-            sga=fvm(ie)%sga(i,j)
-            do k=1,nlev
-              fvm(ie)%c(i,j,k,1,np1)=dpc(i,j,k)*sga
-              fvm(ie)%c(i,j,k,2:ntrac,np1)=sga*cdp(i,j,k,1:(ntrac-1))/dpc(i,j,k)
-            end do
-          end do
-        end do
-!         call remap_velocityCspelt(np1,dt,elem,fvm,hvcoord,ie)
-#else
-        ! create local variable  cdp(1:nc,1:nc,nlev,ntrac-1)
-        ! cdp(:,:,:,n) = fvm%c(:,:,:,n+1,np1)*fvm%c(:,:,:,1,np1)
-        ! dp(:,:,:) = reference level thicknesses
-
-        ! call remap1(cdp,nc,ntrac-1,fvm%c(:,:,:,1,np1),dp)
-
-        ! convert back to mass:
-        ! fvm%c(:,:,:,1,np1) = dp(:,:,:)
-        ! fvm%c(:,:,:,n,np1) = fvm%c(:,:,:,n,np1)/dp(:,:,:)
-        do i=1,nc
-          do j=1,nc
-            ! 1. compute surface pressure, 'ps_c', from FVMair density
-            psc(i,j)=sum(fvm(ie)%c(i,j,:,1,np1)) +  hvcoord%hyai(1)*hvcoord%ps0
-            ! 2. compute dp_np1 using FVM air density and eta coordinate formula
-            ! get the dp now on the eta coordinates (reference level)
-            do k=1,nlev
-              dpc(i,j,k) = (hvcoord%hyai(k+1) - hvcoord%hyai(k))*hvcoord%ps0 + &
-                              (hvcoord%hybi(k+1) - hvcoord%hybi(k))*psc(i,j)
-              cdp(i,j,k,1:(ntrac-1))=fvm(ie)%c(i,j,k,2:ntrac,np1)*fvm(ie)%c(i,j,k,1,np1)
-            end do
-          end do
-        end do
-        dpc_star=fvm(ie)%c(1:nc,1:nc,:,1,np1)
-        call remap1(cdp,nc,ntrac-1,dpc_star,dpc)
-        do i=1,nc
-          do j=1,nc
-            do k=1,nlev
-              fvm(ie)%c(i,j,k,1,np1)=dpc(i,j,k)
-              fvm(ie)%c(i,j,k,2:ntrac,np1)=cdp(i,j,k,1:(ntrac-1))/dpc(i,j,k)
-            end do
-          end do
-        end do
-!         call remap_velocityC(np1,dt,elem,fvm,hvcoord,ie)
-#endif
-     endif
-
-  enddo
+  call my_vertical_remap_acc()
+!  do ie=nets,nete
+!        elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
+!             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+!        do k=1,nlev
+!           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+!                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
+!           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+!        enddo
+!
+!        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
+!        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
+!        call remap1(ttmp,np,1,dp_star,dp)
+!        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
+!
+!        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
+!        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
+!        call remap1(ttmp,np,2,dp_star,dp)
+!        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
+!        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+!
+!        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+!
+!
+!
+!  enddo
+  
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
