@@ -1079,9 +1079,9 @@ contains
     ! compute energy if we are using an energy fixer
 
     compute_diagnostics=.false.
-    if (MODULO(tl%nstep+1,statefreq)==0 .or. tl%nstep+1==tl%nstep0) then
-       compute_diagnostics=.true.  
-    endif
+    !if (MODULO(tl%nstep+1,statefreq)==0 .or. tl%nstep+1==tl%nstep0) then
+    !   compute_diagnostics=.true.  
+    !endif
     tot_iter=0.0       
 
 

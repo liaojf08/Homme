@@ -97,10 +97,10 @@ module vertremap_mod
 !and for the deformed Lagrangian grid. This was pulled out of each routine since it was a repeated task.
   subroutine my_vertical_remap_acc(elem, hvcoord, ps0, my_nets, my_nete, my_nlev, my_qsize, my_np)
   
-  type (element_t), intent(inout)   :: elem(:)
   type (hvcoord_t), intent(in)      :: hvcoord
-  !integer(kind=8), intent(in), dimension(7, my_nets:my_nete) :: elem_array
   integer, intent(in) :: my_nets, my_nete, my_nlev, my_qsize, my_np
+  !integer(kind=8), intent(in), dimension(7, my_nets:my_nete) :: elem_array
+  type (element_t), intent(inout)   :: elem(my_nets:my_nete)
   real(kind=8) :: ps0
 
 
@@ -130,7 +130,7 @@ module vertremap_mod
   pointer(hvcoord_hybi_ptr, hvcoord_hybi)
 
   write(*,*) "Asher is a fool"
-  do ie=nets,nete
+  do ie=my_nets,my_nete
         write(*,*) "Asher is very stupid",ie
         elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
              sum(elem(ie)%state%dp3d(:,:,:,np1),3)
@@ -3718,7 +3718,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 !     elem_array(7,ie) = loc(hvcoord%hybi(:))
 !  enddo
 !  ps0 = hvcoord%ps0
-  call my_vertical_remap_acc(elem, hvcoord, ps0, nets, nete, nlev, qsize, np)
+  call my_vertical_remap_acc(elem(nets:nete), hvcoord, ps0, nets, nete, nlev, qsize, np)
       
 
  ! do ie=nets,nete
@@ -3746,7 +3746,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
 
  ! enddo
-  write(*,*) "shuuuuuuuuuuuuuuut up Asher!"  
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
