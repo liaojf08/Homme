@@ -129,28 +129,35 @@ module vertremap_mod
   real(kind=8) :: hvcoord_hybi(nlev+1)
   pointer(hvcoord_hybi_ptr, hvcoord_hybi)
 
+  write(*,*) "Asher is a fool"
   do ie=nets,nete
+        write(*,*) "Asher is very stupid",ie
         elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
              sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+        write(*,*) "Asher is the most stupid",ie
         do k=1,nlev
            dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
                 ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
            dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
         enddo
 
+        write(*,*) "no one is stupid than Asher",ie
         ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
         ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
         call remap1(ttmp,np,1,dp_star,dp)
         elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
+        write(*,*) "Any dog is clever than Asher",ie
         ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
         ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
         call remap1(ttmp,np,2,dp_star,dp)
         elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
         elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
 
+        write(*,*) "Anything is clever than Asher",ie
         call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
 
+        write(*,*) "nothing is stupid than Asher",ie
 
 
   enddo
@@ -3711,35 +3718,35 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 !     elem_array(7,ie) = loc(hvcoord%hybi(:))
 !  enddo
 !  ps0 = hvcoord%ps0
-!  call my_vertical_remap_acc(elem, hvcoord, ps0, nets, nete, nlev, qsize, np)
+  call my_vertical_remap_acc(elem, hvcoord, ps0, nets, nete, nlev, qsize, np)
       
 
-  do ie=nets,nete
-        elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
-             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
-        do k=1,nlev
-           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
-                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
-           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
-        enddo
+ ! do ie=nets,nete
+ !       elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
+ !            sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+ !       do k=1,nlev
+ !          dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+ !               ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
+ !          dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+ !       enddo
 
-        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
-        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
-        call remap1(ttmp,np,1,dp_star,dp)
-        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
+ !       ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
+ !       ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
+ !       call remap1(ttmp,np,1,dp_star,dp)
+ !       elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
-        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
-        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
-        call remap1(ttmp,np,2,dp_star,dp)
-        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
-        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+ !       ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
+ !       ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
+ !       call remap1(ttmp,np,2,dp_star,dp)
+ !       elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
+ !       elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
 
-        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+ !       call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
 
 
 
-  enddo
-  
+ ! enddo
+  write(*,*) "shuuuuuuuuuuuuuuut up Asher!"  
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
