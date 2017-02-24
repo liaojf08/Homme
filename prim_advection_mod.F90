@@ -3710,7 +3710,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=8) :: elem_state_ps_v(np,np)
   pointer(elem_state_ps_v_ptr, elem_state_ps_v)
 
-  real(kind=8) :: elem_state_dp3d(np,np,nlev)
+  real(kind=8) :: elem_state_dp3d(np,np,nlev,3)
   pointer(elem_state_dp3d_ptr, elem_state_dp3d)
 
   real(kind=8) :: elem_state_t(np,np,nlev)
@@ -3730,7 +3730,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   call t_startf('vertical_remap')
   do ie = nets, nete
      elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
-     elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,np1))
+     elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,:))
      elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,np1))
      elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,np1))
      elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1))
@@ -3743,15 +3743,15 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   do ie=nets,nete
         elem_state_ps_v_ptr = elem_array(1,ie)
-
+        elem_state_dp3d_ptr = elem_array(2,ie) 
         hvcoord_hyai_ptr    = elem_array(6,ie)
         hvcoord_hybi_ptr    = elem_array(7,ie)
         elem_state_ps_v(:,:) = hvcoord_hyai(1)*ps0 + &
-             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+             sum(elem_state_dp3d(:,:,:,np1),3)
         do k=1,nlev
            dp(:,:,k) = ( hvcoord_hyai(k+1) - hvcoord_hyai(k) )*ps0 + &
                 ( hvcoord_hybi(k+1) - hvcoord_hybi(k) )*elem_state_ps_v(:,:)
-           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+           dp_star(:,:,k) = elem_state_dp3d(:,:,k,np1)
         enddo
 
         ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
