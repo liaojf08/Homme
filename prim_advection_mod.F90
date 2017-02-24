@@ -1679,7 +1679,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     !local
     integer :: ie, q, k
 
-    !!$ACC PARALLEL LOOP collapse(2) copyout(my_qmin, my_qmax) copyin(Qtens_biharmonic)
+    !$ACC PARALLEL LOOP collapse(2) copyout(my_qmin, my_qmax) copyin(Qtens_biharmonic)
     do ie = nets, nete
       do q = 1, my_qsize
         do k = 1, my_nlev
@@ -1689,7 +1689,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         enddo
       enddo
     enddo
-    !!$ACC END PARALLEL LOOP
+    !$ACC END PARALLEL LOOP
   end subroutine
 
   subroutine cal_qmin_qmax_rhs_multiplier_1(nets, nete, my_qsize, my_nlev, &
@@ -1706,7 +1706,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     !local
     integer :: ie, q, k
 
-    !!$ACC PARALLEL LOOP collapse(2) copy(my_qmin, my_qmax) copyin(Qtens_biharmonic)
+    !$ACC PARALLEL LOOP collapse(2) copy(my_qmin, my_qmax) copyin(Qtens_biharmonic)
     do ie = nets, nete
       do q = 1, my_qsize
         do k = 1 , my_nlev    !  Loop index added with implicit inversion (AAM)
@@ -1716,7 +1716,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         enddo
       enddo
     enddo
-    !!$ACC END PARALLEL LOOP
+    !$ACC END PARALLEL LOOP
   end subroutine
 
   subroutine cal_qtens_biharmonic_nu_p(nets, nete, my_qsize, my_nlev, &
@@ -1737,7 +1737,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     !local
     integer :: ie, q, k
 
-    !!$ACC PARALLEL LOOP copy(Qtens_biharmonic) copyin(elem_derived_dpdiss_ave, hvcoord_hyai, hvcoord_hybi) annotate(entire(hvcoord_hyai, hvcoord_hybi)) collapse(2) tile(q:1)
+    !$ACC PARALLEL LOOP copy(Qtens_biharmonic) copyin(elem_derived_dpdiss_ave, hvcoord_hyai, hvcoord_hybi) annotate(entire(hvcoord_hyai, hvcoord_hybi)) collapse(2) tile(q:1)
     do ie = nets , nete
       do q = 1 , my_qsize
         do k = 1 , my_nlev
@@ -1747,7 +1747,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         enddo
       enddo
     enddo
-    !!$ACC END PARALLEL LOOP
+    !$ACC END PARALLEL LOOP
   end subroutine
 
   subroutine cal_qtens_biharmonic(nets, nete, my_qsize, my_nlev, &
@@ -1771,7 +1771,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     !local
     integer :: ie, q, k
 
-   !!$ACC PARALLEL LOOP copy(Qtens_biharmonic) copyin(hvcoord_hyai, hvcoord_hybi, elem_spheremp_array) annotate(entire(hvcoord_hyai, hvcoord_hybi)) collapse(2) tile(q:1)
+   !$ACC PARALLEL LOOP copy(Qtens_biharmonic) copyin(hvcoord_hyai, hvcoord_hybi, elem_spheremp_array) annotate(entire(hvcoord_hyai, hvcoord_hybi)) collapse(2) tile(q:1)
    do ie = nets , nete
     do k = 1 , my_nlev    !  Loop inversion (AAM)
       do q = 1 , my_qsize
@@ -1780,7 +1780,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       enddo
     enddo
   enddo
-  !!$ACC END PARALLEL LOOP
+  !$ACC END PARALLEL LOOP
   end subroutine
   subroutine my_divergence_sphere(gradQ, derivDvvi, elemmetdevt, elemDinv, elemrmetdet, my_rrearth, div)
     ! ===========================
@@ -3707,6 +3707,26 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=real_kind) :: ps0
   integer(kind=8), dimension(7, nets:nete) :: elem_array
 
+  real(kind=8) :: elem_state_ps_v(np,np)
+  pointer(elem_state_ps_v_ptr, elem_state_ps_v)
+
+  real(kind=8) :: elem_state_dp3d(np,np,nlev)
+  pointer(elem_state_dp3d_ptr, elem_state_dp3d)
+
+  real(kind=8) :: elem_state_t(np,np,nlev)
+  pointer(elem_state_t_ptr, elem_state_t)
+
+  real(kind=8) :: elem_state_v(np,np,2,nlev)
+  pointer(elem_state_v_ptr, elem_state_v)
+
+  real(kind=8) :: elem_state_qdp(np,np,nlev,qsize)
+  pointer(elem_state_qdp_ptr, elem_state_qdp)
+
+  real(kind=8) :: hvcoord_hyai(nlev+1)
+  pointer(hvcoord_hyai_ptr, hvcoord_hyai)
+
+  real(kind=8) :: hvcoord_hybi(nlev+1)
+  pointer(hvcoord_hybi_ptr, hvcoord_hybi)
   call t_startf('vertical_remap')
   do ie = nets, nete
      elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
