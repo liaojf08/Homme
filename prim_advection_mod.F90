@@ -3708,44 +3708,45 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   integer(kind=8), dimension(7, nets:nete) :: elem_array
 
   call t_startf('vertical_remap')
-!  do ie = nets, nete
-!     elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
-!     elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,np1))
-!     elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,np1))
-!     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,np1))
-!     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1))
-!     elem_array(6,ie) = loc(hvcoord%hyai(:)) 
-!     elem_array(7,ie) = loc(hvcoord%hybi(:))
-!  enddo
-!  ps0 = hvcoord%ps0
-  call my_vertical_remap_acc(elem(nets:nete), hvcoord, ps0, nets, nete, nlev, qsize, np)
+  do ie = nets, nete
+     elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
+     elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,np1))
+     elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,np1))
+     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,np1))
+     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1))
+     elem_array(6,ie) = loc(hvcoord%hyai(:)) 
+     elem_array(7,ie) = loc(hvcoord%hybi(:))
+  enddo
+  ps0 = hvcoord%ps0
+  !call my_vertical_remap_acc(elem(nets:nete), hvcoord, ps0, nets, nete, nlev, qsize, np)
       
 
- ! do ie=nets,nete
- !       elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
- !            sum(elem(ie)%state%dp3d(:,:,:,np1),3)
- !       do k=1,nlev
- !          dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
- !               ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
- !          dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
- !       enddo
+  do ie=nets,nete
+        elem_state_ps_v_ptr = elem_array(1,ie)
+        elem_state_ps_v(:,:) = hvcoord%hyai(1)*hvcoord%ps0 + &
+             sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+        do k=1,nlev
+           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem_state_ps_v(:,:)
+           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+        enddo
 
- !       ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
- !       ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
- !       call remap1(ttmp,np,1,dp_star,dp)
- !       elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
+        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
+        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
+        call remap1(ttmp,np,1,dp_star,dp)
+        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
- !       ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
- !       ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
- !       call remap1(ttmp,np,2,dp_star,dp)
- !       elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
- !       elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
+        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
+        call remap1(ttmp,np,2,dp_star,dp)
+        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
+        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
 
- !       call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
 
 
 
- ! enddo
+  enddo
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
