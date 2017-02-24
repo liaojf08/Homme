@@ -3743,11 +3743,14 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   do ie=nets,nete
         elem_state_ps_v_ptr = elem_array(1,ie)
-        elem_state_ps_v(:,:) = hvcoord%hyai(1)*hvcoord%ps0 + &
+
+        hvcoord_hyai_ptr    = elem_array(6,ie)
+        hvcoord_hybi_ptr    = elem_array(7,ie)
+        elem_state_ps_v(:,:) = hvcoord_hyai(1)*ps0 + &
              sum(elem(ie)%state%dp3d(:,:,:,np1),3)
         do k=1,nlev
-           dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
-                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem_state_ps_v(:,:)
+           dp(:,:,k) = ( hvcoord_hyai(k+1) - hvcoord_hyai(k) )*ps0 + &
+                ( hvcoord_hybi(k+1) - hvcoord_hybi(k) )*elem_state_ps_v(:,:)
            dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
         enddo
 
