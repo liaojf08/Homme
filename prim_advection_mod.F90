@@ -904,7 +904,7 @@ module prim_advection_mod
 !    d/dt[dp Q] +  div( U dp Q ) + d( eta_dot_dpdn Q ) = 0
 !
 !
-  use kinds, only              : real_kind
+  use kinds, only              : real_kind,int_kind
   use dimensions_mod, only     : nlev, nlevp, np, qsize, ntrac, nc, nep
   use physical_constants, only : rgas, Rwater_vapor, kappa, g, rearth, rrearth, cp
   use derivative_mod, only     : gradient, vorticity, gradient_wk, derivative_t, divergence, &
@@ -3688,7 +3688,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   !
   use kinds, only : real_kind
   use hybvcoord_mod, only : hvcoord_t
-  use vertremap_mod, only : my_vertical_remap_acc, remap1, remap1_nofilter, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
   use control_mod, only :  rsplit
   use parallel_mod, only : abortmp
   use fvm_control_volume_mod, only : fvm_struct
@@ -3759,16 +3758,16 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
         ttmp(:,:,:,1)=elem_state_t(:,:,:,np1)
         ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
-        call remap1(ttmp,np,1,dp_star,dp)
+        call my_remap1(ttmp,np,1,dp_star,dp)
         elem_state_t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
         ttmp(:,:,:,1)=elem_state_v(:,:,1,:,np1)*dp_star
         ttmp(:,:,:,2)=elem_state_v(:,:,2,:,np1)*dp_star
-        call remap1(ttmp,np,2,dp_star,dp)
+        call my_remap1(ttmp,np,2,dp_star,dp)
         elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
         elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
 
-        call remap1(elem_state_Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+        call my_remap1(elem_state_Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
 
 
 
@@ -3777,6 +3776,277 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   end subroutine vertical_remap
 
 
+
+subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
+  use vertremap_mod, only :  vert_remap_q_alg, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
+  ! remap 1 field
+  ! input:  Qdp   field to be remapped (NOTE: MASS, not MIXING RATIO)
+  !         dp1   layer thickness (source)
+  !         dp2   layer thickness (target)
+  !
+  ! output: remaped Qdp, conserving mass, monotone on Q=Qdp/dp
+  !
+  implicit none
+  integer, intent(in) :: nx,qsize
+  real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
+  real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
+  ! ========================
+  ! Local Variables
+  ! ========================
+
+  real (kind=real_kind), dimension(nlev+1)    :: rhs,lower_diag,diag,upper_diag,q_diag,zgam,z1c,z2c,zv
+  real (kind=real_kind), dimension(nlev)      :: h,Qcol,dy,za0,za1,za2,zarg,zhdp,dp_star,dp_np1
+  real (kind=real_kind)  :: f_xm,level1,level2,level3,level4,level5, &
+                            peaks_min,peaks_max,tmp_cal,xm,xm_d,zv1,zv2, &
+                            zero = 0,one = 1,tiny = 1e-12,qmax = 1d50
+  integer(kind=int_kind) :: zkr(nlev+1),filter_code(nlev),peaks,im1,im2,im3,ip1,ip2, &
+                            lt1,lt2,lt3,t0,t1,t2,t3,t4,tm,tp,ie,i,ilev,j,jk,k,q
+  logical :: abort=.false.
+  call t_startf('remap1')
+
+  if (vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2) then
+     call remap_Q_ppm(qdp,nx,qsize,dp1,dp2)
+     call t_stopf('remap1')
+     return
+  endif
+
+#if (defined ELEMENT_OPENMP)
+!$omp parallel do private(qsize,i,j,z1c,z2c,zv,k,dp_np1,dp_star,Qcol,zkr,ilev) &
+!$omp    private(jk,zgam,zhdp,h,zarg,rhs,lower_diag,diag,upper_diag,q_diag,tmp_cal,filter_code) &
+!$omp    private(dy,im1,im2,im3,ip1,t1,t2,t3,za0,za1,za2,xm_d,xm,f_xm,t4,tm,tp,peaks,peaks_min) &
+!$omp    private(peaks_max,ip2,level1,level2,level3,level4,level5,lt1,lt2,lt3,zv1,zv2)
+#endif
+  do q=1,qsize
+  do i=1,nx
+    do j=1,nx
+
+      z1c(1)=0 ! source grid
+      z2c(1)=0 ! target grid
+      do k=1,nlev
+         z1c(k+1)=z1c(k)+dp1(i,j,k)
+         z2c(k+1)=z2c(k)+dp2(i,j,k)
+      enddo
+
+      zv(1)=0
+      do k=1,nlev
+        Qcol(k)=Qdp(i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
+        zv(k+1) = zv(k)+Qcol(k)
+      enddo
+
+      if (ABS(z2c(nlev+1)-z1c(nlev+1)).GE.0.000001) then
+        write(6,*) 'SURFACE PRESSURE IMPLIED BY ADVECTION SCHEME'
+        write(6,*) 'NOT CORRESPONDING TO SURFACE PRESSURE IN    '
+        write(6,*) 'DATA FOR MODEL LEVELS'
+        write(6,*) 'PLEVMODEL=',z2c(nlev+1)
+        write(6,*) 'PLEV     =',z1c(nlev+1)
+        write(6,*) 'DIFF     =',z2c(nlev+1)-z1c(nlev+1)
+        abort=.true.
+      endif
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! quadratic splies with UK met office monotonicity constraints  !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      zkr  = 99
+      ilev = 2
+      zkr(1) = 1
+      zkr(nlev+1) = nlev
+      kloop: do k = 2,nlev
+        do jk = ilev,nlev+1
+          if (z1c(jk).ge.z2c(k)) then
+            ilev      = jk
+            zkr(k)   = jk-1
+            cycle kloop
+          endif
+        enddo
+      enddo kloop
+
+      zgam  = (z2c(1:nlev+1)-z1c(zkr)) / (z1c(zkr+1)-z1c(zkr))
+      zgam(1)      = 0.0
+      zgam(nlev+1) = 1.0
+      zhdp = z1c(2:nlev+1)-z1c(1:nlev)
+
+
+      h = 1/zhdp
+      zarg = Qcol * h
+      rhs = 0
+      lower_diag = 0
+      diag = 0
+      upper_diag = 0
+
+      rhs(1)=3*zarg(1)
+      rhs(2:nlev) = 3*(zarg(2:nlev)*h(2:nlev) + zarg(1:nlev-1)*h(1:nlev-1))
+      rhs(nlev+1)=3*zarg(nlev)
+
+      lower_diag(1)=1
+      lower_diag(2:nlev) = h(1:nlev-1)
+      lower_diag(nlev+1)=1
+
+      diag(1)=2
+      diag(2:nlev) = 2*(h(2:nlev) + h(1:nlev-1))
+      diag(nlev+1)=2
+
+      upper_diag(1)=1
+      upper_diag(2:nlev) = h(2:nlev)
+      upper_diag(nlev+1)=0
+
+      q_diag(1)=-upper_diag(1)/diag(1)
+      rhs(1)= rhs(1)/diag(1)
+
+      do k=2,nlev+1
+        tmp_cal    =  1/(diag(k)+lower_diag(k)*q_diag(k-1))
+        q_diag(k) = -upper_diag(k)*tmp_cal
+        rhs(k) =  (rhs(k)-lower_diag(k)*rhs(k-1))*tmp_cal
+      enddo
+      do k=nlev,1,-1
+        rhs(k)=rhs(k)+q_diag(k)*rhs(k+1)
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!  monotonicity modifications  !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      filter_code = 0
+      dy(1:nlev-1) = zarg(2:nlev)-zarg(1:nlev-1)
+      dy(nlev) = dy(nlev-1)
+
+      dy = merge(zero, dy, abs(dy) < tiny )
+
+      do k=1,nlev
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        im3=MAX(1,k-3)
+        ip1=MIN(nlev,k+1)
+        t1 = merge(1,0,(zarg(k)-rhs(k))*(rhs(k)-zarg(im1)) >= 0)
+        t2 = merge(1,0,dy(im2)*(rhs(k)-zarg(im1)) > 0 .AND. dy(im2)*dy(im3) > 0 &
+             .AND. dy(k)*dy(ip1) > 0 .AND. dy(im2)*dy(k) < 0 )
+        t3 = merge(1,0,ABS(rhs(k)-zarg(im1)) > ABS(rhs(k)-zarg(k)))
+
+        filter_code(k) = merge(0,1,t1+t2 > 0)
+        rhs(k) = (1-filter_code(k))*rhs(k)+filter_code(k)*(t3*zarg(k)+(1-t3)*zarg(im1))
+        filter_code(im1) = MAX(filter_code(im1),filter_code(k))
+      enddo
+
+      rhs = merge(qmax,rhs,rhs > qmax)
+      rhs = merge(zero,rhs,rhs < zero)
+
+      za0 = rhs(1:nlev)
+      za1 = -4*rhs(1:nlev) - 2*rhs(2:nlev+1) + 6*zarg
+      za2 =  3*rhs(1:nlev) + 3*rhs(2:nlev+1) - 6*zarg
+
+      dy(1:nlev) = rhs(2:nlev+1)-rhs(1:nlev)
+      dy = merge(zero, dy, abs(dy) < tiny )
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! Compute the 3 quadratic spline coeffients {za0, za1, za2}				   !!
+      !! knowing the quadratic spline parameters {rho_left,rho_right,zarg}		   !!
+      !! Zerroukat et.al., Q.J.R. Meteorol. Soc., Vol. 128, pp. 2801-2820 (2002).   !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      h = rhs(2:nlev+1)
+
+      do k=1,nlev
+        xm_d = merge(one,2*za2(k),abs(za2(k)) < tiny)
+        xm = merge(zero,-za1(k)/xm_d, abs(za2(k)) < tiny)
+        f_xm = za0(k) + za1(k)*xm + za2(k)*xm**2
+
+        t1 = merge(1,0,ABS(za2(k)) > tiny)
+        t2 = merge(1,0,xm <= zero .OR. xm >= 1)
+        t3 = merge(1,0,za2(k) > zero)
+        t4 = merge(1,0,za2(k) < zero)
+        tm = merge(1,0,t1*((1-t2)+t3) .EQ. 2)
+        tp = merge(1,0,t1*((1-t2)+(1-t3)+t4) .EQ. 3)
+
+        peaks=0
+        peaks = merge(-1,peaks,tm .EQ. 1)
+        peaks = merge(+1,peaks,tp .EQ. 1)
+        peaks_min = merge(f_xm,MIN(za0(k),za0(k)+za1(k)+za2(k)),tm .EQ. 1)
+        peaks_max = merge(f_xm,MAX(za0(k),za0(k)+za1(k)+za2(k)),tp .EQ. 1)
+
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        ip1=MIN(nlev,k+1)
+        ip2=MIN(nlev,k+2)
+
+        t1 = merge(abs(peaks),0,(dy(im2)*dy(im1) <= tiny) .OR. &
+             (dy(ip1)*dy(ip2) <= tiny) .OR. (dy(im1)*dy(ip1) >= tiny) .OR. &
+             (dy(im1)*float(peaks) <= tiny))
+
+        filter_code(k) = merge(1,t1+(1-t1)*filter_code(k),(rhs(k) >= qmax) .OR. &
+             (rhs(k) <= zero) .OR. (peaks_max > qmax) .OR. (peaks_min < tiny))
+
+        if (filter_code(k) > 0) then
+          level1 = rhs(k)
+          level2 = (2*rhs(k)+h(k))/3
+          level3 = 0.5*(rhs(k)+h(k))
+          level4 = (1/3d0)*rhs(k)+2*(1/3d0)*h(k)
+          level5 = h(k)
+
+          t1 = merge(1,0,h(k) >= rhs(k))
+          t2 = merge(1,0,zarg(k) <= level1 .OR.  zarg(k) >= level5)
+          t3 = merge(1,0,zarg(k) >  level1 .AND. zarg(k) <  level2)
+          t4 = merge(1,0,zarg(k) >  level4 .AND. zarg(k) <  level5)
+
+          lt1 = t1*t2
+          lt2 = t1*(1-t2+t3)
+          lt3 = t1*(1-t2+1-t3+t4)
+
+          za0(k) = merge(zarg(k),za0(k),lt1 .EQ. 1)
+          za1(k) = merge(zero,za1(k),lt1 .EQ. 1)
+          za2(k) = merge(zero,za2(k),lt1 .EQ. 1)
+
+          za0(k) = merge(rhs(k),za0(k),lt2 .EQ. 2)
+          za1(k) = merge(zero,za1(k),lt2 .EQ. 2)
+          za2(k) = merge(3*(zarg(k)-rhs(k)),za2(k),lt2 .EQ. 2)
+
+          za0(k) = merge(-2*h(k)+3*zarg(k),za0(k),lt3 .EQ. 3)
+          za1(k) = merge(+6*h(k)-6*zarg(k),za1(k),lt3 .EQ. 3)
+          za2(k) = merge(-3*h(k)+3*zarg(k),za2(k),lt3 .EQ. 3)
+
+          t2 = merge(1,0,zarg(k) >= level1 .OR.  zarg(k) <= level5)
+          t3 = merge(1,0,zarg(k) <  level1 .AND. zarg(k) >  level2)
+          t4 = merge(1,0,zarg(k) <  level4 .AND. zarg(k) >  level5)
+
+          lt1 = (1-t1)*t2
+          lt2 = (1-t1)*(1-t2+t3)
+          lt3 = (1-t1)*(1-t2+1-t3+t4)
+
+          za0(k) = merge(zarg(k),za0(k),lt1 .EQ. 1)
+          za1(k) = merge(zero,za1(k),lt1 .EQ. 1)
+          za2(k) = merge(zero,za2(k),lt1 .EQ. 1)
+
+          za0(k) = merge(rhs(k),za0(k),lt2 .EQ. 2)
+          za1(k) = merge(zero,za1(k),lt2 .EQ. 2)
+          za2(k) = merge(3*(zarg(k)-rhs(k)),za2(k),lt2 .EQ. 2)
+
+          za0(k) = merge(-2*h(k)+3*zarg(k),za0(k),lt3 .EQ. 3)
+          za1(k) = merge(+6*h(k)-6*zarg(k),za1(k),lt3 .EQ. 3)
+          za2(k) = merge(-3*h(k)+3*zarg(k),za2(k),lt3 .EQ. 3)
+        endif
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! start iteration from top to bottom of atmosphere !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      zv1 = 0
+      do k=1,nlev
+        if (zgam(k+1)>1d0) then
+          WRITE(*,*) 'r not in [0:1]', zgam(k+1)
+          abort=.true.
+        endif
+        zv2 = zv(zkr(k+1))+(za0(zkr(k+1))*zgam(k+1)+(za1(zkr(k+1))/2)*(zgam(k+1)**2)+ &
+             (za2(zkr(k+1))/3)*(zgam(k+1)**3))*zhdp(zkr(k+1))
+        Qdp(i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
+        zv1 = zv2
+      enddo
+    enddo
+  enddo
+  enddo ! q loop
+  if (abort) call abortmp('Bad levels in remap1.  usually CFL violatioin')
+  call t_stopf('remap1')
+end subroutine remap1
 
 
 end module prim_advection_mod
