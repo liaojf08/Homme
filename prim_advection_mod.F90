@@ -3713,13 +3713,13 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=8) :: elem_state_dp3d(np,np,nlev,3)
   pointer(elem_state_dp3d_ptr, elem_state_dp3d)
 
-  real(kind=8) :: elem_state_t(np,np,nlev)
+  real(kind=8) :: elem_state_t(np,np,nlev,3)
   pointer(elem_state_t_ptr, elem_state_t)
 
-  real(kind=8) :: elem_state_v(np,np,2,nlev)
+  real(kind=8) :: elem_state_v(np,np,2,nlev,3)
   pointer(elem_state_v_ptr, elem_state_v)
 
-  real(kind=8) :: elem_state_qdp(np,np,nlev,qsize)
+  real(kind=8) :: elem_state_qdp(np,np,nlev,qsize,2)
   pointer(elem_state_qdp_ptr, elem_state_qdp)
 
   real(kind=8) :: hvcoord_hyai(nlev+1)
@@ -3731,9 +3731,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   do ie = nets, nete
      elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
      elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,:))
-     elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,np1))
-     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,np1))
-     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1))
+     elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,:))
+     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,:))
+     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1_qdp))
      elem_array(6,ie) = loc(hvcoord%hyai(:)) 
      elem_array(7,ie) = loc(hvcoord%hybi(:))
   enddo
@@ -3743,7 +3743,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   do ie=nets,nete
         elem_state_ps_v_ptr = elem_array(1,ie)
-        elem_state_dp3d_ptr = elem_array(2,ie) 
+        elem_state_dp3d_ptr = elem_array(2,ie)
+        elem_state_t_ptr    = elem_array(3,ie)
+        elem_state_v_ptr    = elem_array(4,ie)
+        elem_state_qdp_ptr  = elem_array(5,ie) 
         hvcoord_hyai_ptr    = elem_array(6,ie)
         hvcoord_hybi_ptr    = elem_array(7,ie)
         elem_state_ps_v(:,:) = hvcoord_hyai(1)*ps0 + &
@@ -3754,18 +3757,18 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
            dp_star(:,:,k) = elem_state_dp3d(:,:,k,np1)
         enddo
 
-        ttmp(:,:,:,1)=elem(ie)%state%t(:,:,:,np1)
+        ttmp(:,:,:,1)=elem_state_t(:,:,:,np1)
         ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
         call remap1(ttmp,np,1,dp_star,dp)
-        elem(ie)%state%t(:,:,:,np1)=ttmp(:,:,:,1)/dp
+        elem_state_t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
-        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
-        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
+        ttmp(:,:,:,1)=elem_state_v(:,:,1,:,np1)*dp_star
+        ttmp(:,:,:,2)=elem_state_v(:,:,2,:,np1)*dp_star
         call remap1(ttmp,np,2,dp_star,dp)
-        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
-        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+        elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
+        elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
 
-        call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+        call remap1(elem_state_Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
 
 
 
