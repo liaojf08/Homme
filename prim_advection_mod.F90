@@ -3700,8 +3700,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real (kind=real_kind)             :: dt,sga
 
   integer :: ie,i,j,k,np1,nets,nete,np1_qdp
-  real (kind=real_kind), dimension(np,np,nlev)  :: dp,dp_star
-  real (kind=real_kind), dimension(np,np,nlev,2)  :: ttmp
+  real (kind=real_kind), dimension(np,np,nlev,nets:nete)  :: dp_star
+  real (kind=real_kind), dimension(np,np,nlev,nets:nete)  :: dp
+  real (kind=real_kind), dimension(np,np,nlev,2,nets:nete)  :: ttmp
 
   real(kind=real_kind) :: ps0
   integer(kind=8), dimension(7, nets:nete) :: elem_array
@@ -3732,14 +3733,14 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
      elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,:))
      elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,:))
      elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,:))
-     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1_qdp))
+     elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,:))
      elem_array(6,ie) = loc(hvcoord%hyai(:)) 
      elem_array(7,ie) = loc(hvcoord%hybi(:))
   enddo
   ps0 = hvcoord%ps0
   !call my_vertical_remap_acc(elem(nets:nete), hvcoord, ps0, nets, nete, nlev, qsize, np)
       
-
+  !$ACC parallel loop copy(elem_array)
   do ie=nets,nete
         elem_state_ps_v_ptr = elem_array(1,ie)
         elem_state_dp3d_ptr = elem_array(2,ie)
@@ -3748,47 +3749,51 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_state_qdp_ptr  = elem_array(5,ie) 
         hvcoord_hyai_ptr    = elem_array(6,ie)
         hvcoord_hybi_ptr    = elem_array(7,ie)
+        !!$ACC DATA local(ttmp)  
         elem_state_ps_v(:,:) = hvcoord_hyai(1)*ps0 + &
              sum(elem_state_dp3d(:,:,:,np1),3)
         do k=1,nlev
-           dp(:,:,k) = ( hvcoord_hyai(k+1) - hvcoord_hyai(k) )*ps0 + &
+           dp(:,:,k,ie) = ( hvcoord_hyai(k+1) - hvcoord_hyai(k) )*ps0 + &
                 ( hvcoord_hybi(k+1) - hvcoord_hybi(k) )*elem_state_ps_v(:,:)
-           dp_star(:,:,k) = elem_state_dp3d(:,:,k,np1)
+           dp_star(:,:,k,ie) = elem_state_dp3d(:,:,k,np1)
         enddo
 
-        ttmp(:,:,:,1)=elem_state_t(:,:,:,np1)
-        ttmp(:,:,:,1)=ttmp(:,:,:,1)*dp_star
-        call my_remap1(ttmp,np,1,dp_star,dp)
-        elem_state_t(:,:,:,np1)=ttmp(:,:,:,1)/dp
 
-        ttmp(:,:,:,1)=elem_state_v(:,:,1,:,np1)*dp_star
-        ttmp(:,:,:,2)=elem_state_v(:,:,2,:,np1)*dp_star
-        call my_remap1(ttmp,np,2,dp_star,dp)
-        elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
-        elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
+        ttmp(:,:,:,1,ie)=elem_state_t(:,:,:,np1)
+        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)*dp_star(:,:,:,ie)
+        call my_remap1(ttmp(:,:,:,:,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        elem_state_t(:,:,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
 
-        call my_remap1(elem_state_Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
+        ttmp(:,:,:,1,ie)=elem_state_v(:,:,1,:,np1)*dp_star(:,:,:,ie)
+        ttmp(:,:,:,2,ie)=elem_state_v(:,:,2,:,np1)*dp_star(:,:,:,ie)
+        call my_remap1(ttmp(:,:,:,:,ie),np,2,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
+        elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
+
+        call my_remap1(elem_state_Qdp(:,:,:,:,np1_qdp), &
+                      np,qsize,dp_star(:,:,:,ie),dp(:,:,:,ie))
 
 
-
+        !!$ACC END DATA
   enddo
+  !$ACC end parallel loop
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
 
 
-subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
+subroutine my_remap1(my_Qdp,nx,my_qsize,dp1,dp2)
   use vertremap_mod, only :  vert_remap_q_alg, remap_q_ppm ! _EXTERNAL (actually INTERNAL)
   ! remap 1 field
   ! input:  Qdp   field to be remapped (NOTE: MASS, not MIXING RATIO)
   !         dp1   layer thickness (source)
   !         dp2   layer thickness (target)
   !
-  ! output: remaped Qdp, conserving mass, monotone on Q=Qdp/dp
+  ! output: rgumentremaped Qdp, conserving mass, monotone on Q=Qdp/dp
   !
   implicit none
-  integer, intent(in) :: nx,qsize
-  real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
+  integer, intent(in) :: nx,my_qsize
+  real (kind=real_kind), dimension(nx,nx,nlev,my_qsize), intent(inout) :: my_Qdp
   real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
   ! ========================
   ! Local Variables
@@ -3804,17 +3809,17 @@ subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
   logical :: abort=.false.
 
   if (vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2) then
-     call my_remap_Q_ppm(qdp,nx,qsize,dp1,dp2)
+     call my_remap_Q_ppm(my_qdp,nx,my_qsize,dp1,dp2)
      return
   endif
 
 #if (defined ELEMENT_OPENMP)
-!$omp parallel do private(qsize,i,j,z1c,z2c,zv,k,dp_np1,dp_star,Qcol,zkr,ilev) &
+!$omp parallel do private(my_qsize,i,j,z1c,z2c,zv,k,dp_np1,dp_star,Qcol,zkr,ilev) &
 !$omp    private(jk,zgam,zhdp,h,zarg,rhs,lower_diag,diag,upper_diag,q_diag,tmp_cal,filter_code) &
 !$omp    private(dy,im1,im2,im3,ip1,t1,t2,t3,za0,za1,za2,xm_d,xm,f_xm,t4,tm,tp,peaks,peaks_min) &
 !$omp    private(peaks_max,ip2,level1,level2,level3,level4,level5,lt1,lt2,lt3,zv1,zv2)
 #endif
-  do q=1,qsize
+  do q=1,my_qsize
   do i=1,nx
     do j=1,nx
 
@@ -3827,7 +3832,7 @@ subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
 
       zv(1)=0
       do k=1,nlev
-        Qcol(k)=Qdp(i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
+        Qcol(k)=my_Qdp(i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
         zv(k+1) = zv(k)+Qcol(k)
       enddo
 
@@ -4036,7 +4041,7 @@ subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
         endif
         zv2 = zv(zkr(k+1))+(za0(zkr(k+1))*zgam(k+1)+(za1(zkr(k+1))/2)*(zgam(k+1)**2)+ &
              (za2(zkr(k+1))/3)*(zgam(k+1)**3))*zhdp(zkr(k+1))
-        Qdp(i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
+        my_Qdp(i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
         zv1 = zv2
       enddo
     enddo
@@ -4044,7 +4049,7 @@ subroutine my_remap1(Qdp,nx,qsize,dp1,dp2)
   enddo ! q loop
 end subroutine my_remap1
 
-subroutine my_remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
+subroutine my_remap_Q_ppm(Qdp,nx,my_qsize,dp1,dp2)
   ! remap 1 field
   ! input:  Qdp   field to be remapped (NOTE: MASS, not MIXING RATIO)
   !         dp1   layer thickness (source)
@@ -4054,8 +4059,8 @@ subroutine my_remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
   !
   use control_mod, only        : prescribed_wind, vert_remap_q_alg
   implicit none
-  integer,intent(in) :: nx,qsize
-  real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
+  integer,intent(in) :: nx,my_qsize
+  real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,my_qsize)
   real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
   ! Local Variables
   integer, parameter :: gs = 2                              !Number of cells to place in the ghost region
@@ -4124,7 +4129,7 @@ subroutine my_remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
 
       !From here, we loop over tracers for only those portions which depend on tracer data, which includes PPM limiting and
       !mass accumulation
-      do q = 1 , qsize
+      do q = 1 , my_qsize
         !Accumulate the old mass up to old grid cell interface locations to simplify integration
         !during remapping. Also, divide out the grid spacing so we're working with actual tracer
         !values and can conserve mass. The option for ifndef ZEROHORZ I believe is there to ensure
