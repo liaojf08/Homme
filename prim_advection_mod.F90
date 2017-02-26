@@ -3732,20 +3732,22 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
      elem_array(1,ie) = loc(elem(ie)%state%ps_v(:,:,np1))
      elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,:))
      elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,:))
-     elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,:))
+     !elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,:))
      elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,:))
      elem_array(6,ie) = loc(hvcoord%hyai(:)) 
      elem_array(7,ie) = loc(hvcoord%hybi(:))
+     ttmp(:,:,:,1,ie) = elem(ie)%state%v(:,:,1,:,np1)
+     ttmp(:,:,:,2,ie) = elem(ie)%state%v(:,:,2,:,np1)
   enddo
   ps0 = hvcoord%ps0
   !call my_vertical_remap_acc(elem(nets:nete), hvcoord, ps0, nets, nete, nlev, qsize, np)
       
-  !$ACC parallel loop copy(elem_array)
+  !$ACC parallel loop copy(elem_array, ttmp)
   do ie=nets,nete
         elem_state_ps_v_ptr = elem_array(1,ie)
         elem_state_dp3d_ptr = elem_array(2,ie)
         elem_state_t_ptr    = elem_array(3,ie)
-        elem_state_v_ptr    = elem_array(4,ie)
+        !elem_state_v_ptr    = elem_array(4,ie)
         elem_state_qdp_ptr  = elem_array(5,ie) 
         hvcoord_hyai_ptr    = elem_array(6,ie)
         hvcoord_hybi_ptr    = elem_array(7,ie)
@@ -3758,17 +3760,23 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         enddo
 
 
-        ttmp(:,:,:,1,ie)=elem_state_t(:,:,:,np1)
-        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)*dp_star(:,:,:,ie)
-        call my_remap1(ttmp(:,:,:,:,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        elem_state_t(:,:,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
+        elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1) * dp_star(:,:,:,ie)
+        call my_remap1(elem_state_t(:,:,:,np1),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        elem_state_t(:,:,:,np1)=elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
 
-        ttmp(:,:,:,1,ie)=elem_state_v(:,:,1,:,np1)*dp_star(:,:,:,ie)
-        ttmp(:,:,:,2,ie)=elem_state_v(:,:,2,:,np1)*dp_star(:,:,:,ie)
+        !ttmp(:,:,:,1,ie)=elem_state_v(:,:,1,:,np1)*dp_star(:,:,:,ie)
+        !ttmp(:,:,:,2,ie)=elem_state_v(:,:,2,:,np1)*dp_star(:,:,:,ie)
+        !call my_remap1(ttmp(:,:,:,1,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        !call my_remap1(ttmp(:,:,:,2,ie),np,2,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        !elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
+        !elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
+         
+        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)*dp_star(:,:,:,ie)
+        ttmp(:,:,:,2,ie)=ttmp(:,:,:,2,ie)*dp_star(:,:,:,ie)
         call my_remap1(ttmp(:,:,:,1,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
         call my_remap1(ttmp(:,:,:,2,ie),np,2,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
-        elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
+        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
+        ttmp(:,:,:,2,ie)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
 
         do q=1,qsize
            call my_remap1(elem_state_Qdp(:,:,:,q,np1_qdp), &
@@ -3777,6 +3785,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   enddo
   !$ACC end parallel loop
+  do ie=nets, nete
+      elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)
+      elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)
+  enddo
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
