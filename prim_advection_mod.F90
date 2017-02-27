@@ -3783,20 +3783,92 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       enddo
     enddo
   enddo
-  !$ACC  PARALLEL LOOP copyin(elem_array) 
   do ie=nets,nete
         elem_state_t_ptr    = elem_array(3,ie)
 
         elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1) * dp_star(:,:,:,ie)
-        call my_remap_Q_ppm(elem_state_t(:,:,:,np1),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        elem_state_t(:,:,:,np1)=elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
+  enddo
+  !$ACC  PARALLEL LOOP collapse(2) copyin(elem_array, dpn_Asher, dpo_Asher) local(pin, pio, kid, masso, ao,  coefs, z1, z2, ppmdx)
+  do ie=nets,nete
+        !elem_state_t_ptr    = elem_array(3,ie)
 
-        !ttmp(:,:,:,1,ie)=elem_state_v(:,:,1,:,np1)*dp_star(:,:,:,ie)
-        !ttmp(:,:,:,2,ie)=elem_state_v(:,:,2,:,np1)*dp_star(:,:,:,ie)
-        !call my_remap1(ttmp(:,:,:,1,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        !call my_remap1(ttmp(:,:,:,2,ie),np,2,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        !elem_state_v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
-        !elem_state_v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
+        !elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1) * dp_star(:,:,:,ie)
+        !call my_remap_Q_ppm(elem_state_t(:,:,:,np1),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
+        !elem_state_t(:,:,:,np1)=elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
+      !=================my_remap_Q_ppm=======================
+      do j = 1 , np
+        elem_state_t_ptr  = elem_array(3,ie)
+        !!$ACC DATA copyin(elem_state_t) 
+        do i = 1 , np
+          pin(1)=0
+          pio(1)=0
+          do k=1,nlev
+             !dpn(k)=dp(i,j,k,ie)
+             !dpo(k)=dp_star(i,j,k,ie)
+             pin(k+1)=pin(k)+dpn_Asher(k,i,j,ie)
+             pio(k+1)=pio(k)+dpo_Asher(k,i,j,ie)
+          enddo
+
+
+
+          pio(nlev+2) = pio(nlev+1) + 1.  !This is here to allow an entire block of k threads to run in the remapping phase.
+                                          !It makes sure there's an old interface value below the domain that is larger.
+          pin(nlev+1) = pio(nlev+1)       !The total mass in a column does not change.
+                                          !Therefore, the pressure of that mass cannot either.
+          do k = 1 , gs
+            dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
+            dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
+          enddo
+
+          do k = 1 , nlev
+            kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
+            do while ( pio(kk) <= pin(k+1) )
+              kk = kk + 1
+            enddo
+            kk = kk - 1                   !kk is now the cell index we're integrating over.
+            if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
+                                          !Top bounds match anyway, so doesn't matter what coefficients are used
+            kid(k) = kk                   !Save for reuse
+            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
+                                          !In fact, we're usually integrating very little or almost all of the cell in question
+            z2(k) = ( pin(k+1) - ( pio(kk) + pio(kk+1) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
+                                                                            !coordinate domain [-0.5,0.5].
+          enddo
+
+          ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
+
+            masso(1) = 0.
+            do k = 1 , nlev
+              ao(k) = elem_state_t(i,j,k,np1)
+              masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
+              ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
+            enddo
+            do k = 1 , gs
+              ao(1   -k) = ao(       k)
+              ao(nlev+k) = ao(nlev+1-k)
+            enddo
+            coefs(:,:) = my_compute_ppm( ao , ppmdx )
+            massn1 = 0.
+            do k = 1 , nlev
+              kk = kid(k)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              elem_state_t(i,j,k,np1) = massn2 - massn1
+              massn1 = massn2
+            enddo
+        enddo
+        !!$ACC end data
+      enddo
+      !=================================
+  enddo
+  !$ACC END PARALLEL LOOP
+
+  do ie=nets,nete
+        elem_state_t_ptr    = elem_array(3,ie)
+
+        elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
+  enddo
+  !$ACC  PARALLEL LOOP copyin(elem_array) 
+  do ie=nets,nete
          
         ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)*dp_star(:,:,:,ie)
         ttmp(:,:,:,2,ie)=ttmp(:,:,:,2,ie)*dp_star(:,:,:,ie)
@@ -3816,7 +3888,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       !=================my_remap_Q_ppm=======================
       do j = 1 , np
         elem_state_qdp_ptr  = elem_array(5,ie)
-        !$ACC DATA copyin(elem_state_qdp) 
+        !$ACC DATA copyin(elem_state_qdp(*,*,*,q,np1_qdp)) 
         do i = 1 , np
           pin(1)=0
           pio(1)=0
