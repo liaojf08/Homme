@@ -3732,7 +3732,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   
   integer, parameter :: gs = 2                              !Number of cells to place in the ghost region
   real(kind=real_kind), dimension(       nlev+2 ) :: pio    !Pressure at interfaces for old grid
+  real(kind=real_kind), dimension(       nlev+2, np, np, nets:nete) :: pio_Asher    !Pressure at interfaces for old grid
   real(kind=real_kind), dimension(       nlev+1 ) :: pin    !Pressure at interfaces for new grid
+  real(kind=real_kind), dimension(       nlev+1, np, np, nets:nete) :: pin_Asher    !Pressure at interfaces for new grid
   real(kind=real_kind), dimension(       nlev+1 ) :: masso  !Accumulate mass up to each interface
   real(kind=real_kind), dimension(  1-gs:nlev+gs) :: ao     !Tracer value on old grid
   real(kind=real_kind), dimension(  1-gs:nlev+gs) :: dpo    !change in pressure over a cell for old grid
@@ -3773,7 +3775,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   enddo
   !$ACC END PARALLEL LOOP
  
-  !!$ACC parallel loop copyin(dp,dp_star) copyout(dpn_Asher, dpo_Asher) 
+  !!$ACC parallel loop collapse(4) copyout(dpn_Asher, dpo_Asher) 
   do ie=nets, nete
     do j=1,np
       do i=1,np
@@ -3785,6 +3787,17 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
             dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
           enddo
+          pin_Asher(1,i,j,ie)=0
+          pio_Asher(1,i,j,ie)=0
+          do k=1,nlev
+             pin_Asher(k+1,i,j,ie)=pin_Asher(k,i,j,ie)+dpn_Asher(k,i,j,ie)
+             pio_Asher(k+1,i,j,ie)=pio_Asher(k,i,j,ie)+dpo_Asher(k,i,j,ie)
+          enddo
+
+
+
+          pio_Asher(nlev+2,i,j,ie) = pio_Asher(nlev+1,i,j,ie) + 1.  
+          pin_Asher(nlev+1,i,j,ie) = pio_Asher(nlev+1,i,j,ie)       
       enddo
     enddo
   enddo
@@ -3801,7 +3814,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END PARALLEL LOOP
-  !$ACC  PARALLEL LOOP collapse(2) copyin(elem_array, dpn_Asher, dpo_Asher) local(pin, pio, kid, masso, ao,  coefs, z1, z2, ppmdx)
+  !$ACC  PARALLEL LOOP collapse(2) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx)
   do ie=nets,nete
         !elem_state_t_ptr    = elem_array(3,ie)
 
@@ -3813,25 +3826,11 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_state_t_ptr  = elem_array(3,ie)
         !!$ACC DATA copyin(elem_state_t(*,*,*,np1)) 
         do i = 1 , np
-          pin(1)=0
-          pio(1)=0
-          do k=1,nlev
-             !dpn(k)=dp(i,j,k,ie)
-             !dpo(k)=dp_star(i,j,k,ie)
-             pin(k+1)=pin(k)+dpn_Asher(k,i,j,ie)
-             pio(k+1)=pio(k)+dpo_Asher(k,i,j,ie)
-          enddo
-
-
-
-          pio(nlev+2) = pio(nlev+1) + 1.  !This is here to allow an entire block of k threads to run in the remapping phase.
-                                          !It makes sure there's an old interface value below the domain that is larger.
-          pin(nlev+1) = pio(nlev+1)       !The total mass in a column does not change.
                                           !Therefore, the pressure of that mass cannot either.
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
-            do while ( pio(kk) <= pin(k+1) )
+            do while ( pio_Asher(kk,i,j,ie) <= pin_Asher(k+1,i,j,ie) )
               kk = kk + 1
             enddo
             kk = kk - 1                   !kk is now the cell index we're integrating over.
@@ -3840,7 +3839,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             kid(k) = kk                   !Save for reuse
             z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
                                           !In fact, we're usually integrating very little or almost all of the cell in question
-            z2(k) = ( pin(k+1) - ( pio(kk) + pio(kk+1) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
+            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
                                                                             !coordinate domain [-0.5,0.5].
           enddo
 
