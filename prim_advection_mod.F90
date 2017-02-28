@@ -3781,17 +3781,26 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           dpn_Asher(k,i,j,ie) = dp(i,j,k,ie)
           dpo_Asher(k,i,j,ie) = dp_star(i,j,k,ie)
         enddo
+          do k = 1 , gs
+            dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
+            dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
+          enddo
       enddo
     enddo
   enddo
   !!$ACC END parallel loop
+  !$ACC parallel loop  copy(ttmp) copyin(dp_star,elem_array)
   do ie=nets,nete
-        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)*dp_star(:,:,:,ie)
-        ttmp(:,:,:,2,ie)=ttmp(:,:,:,2,ie)*dp_star(:,:,:,ie)
+    do k=1,nlev
         elem_state_t_ptr    = elem_array(3,ie)
-
-        elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1) * dp_star(:,:,:,ie)
+        !$ACC DATA copy(elem_state_t(*,*,k,np1))
+        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)*dp_star(:,:,k,ie)
+        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)*dp_star(:,:,k,ie)
+        elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1) * dp_star(:,:,k,ie)
+        !$ACC END DATA
+    enddo
   enddo
+  !$ACC END PARALLEL LOOP
   !$ACC  PARALLEL LOOP collapse(2) copyin(elem_array, dpn_Asher, dpo_Asher) local(pin, pio, kid, masso, ao,  coefs, z1, z2, ppmdx)
   do ie=nets,nete
         !elem_state_t_ptr    = elem_array(3,ie)
@@ -3819,10 +3828,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
                                           !It makes sure there's an old interface value below the domain that is larger.
           pin(nlev+1) = pio(nlev+1)       !The total mass in a column does not change.
                                           !Therefore, the pressure of that mass cannot either.
-          do k = 1 , gs
-            dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
-            dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
-          enddo
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
@@ -3868,10 +3873,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   !$ACC  PARALLEL LOOP collapse(4) copyin(elem_array, dpn_Asher, dpo_Asher) local(pin, pio, kid, masso, ao,  coefs, z1, z2, ppmdx) 
   do ie=nets,nete
-         
-        !call my_remap_Q_ppm(ttmp(:,:,:,1,ie),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        !call my_remap_Q_ppm(ttmp(:,:,:,2,ie),np,2,dp_star(:,:,:,ie),dp(:,:,:,ie))
-      !=================my_remap_Q_ppm=======================
       do q = 1, 2
       do j = 1 , np
         do i = 1 , np
@@ -3890,10 +3891,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
                                           !It makes sure there's an old interface value below the domain that is larger.
           pin(nlev+1) = pio(nlev+1)       !The total mass in a column does not change.
                                           !Therefore, the pressure of that mass cannot either.
-          do k = 1 , gs
-            dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
-            dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
-          enddo
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
@@ -3939,25 +3936,23 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   !$ACC PARALLEL LOOP copyin(elem_array,dp) copy(ttmp)
   do ie=nets,nete
+    do k=1, nlev
         elem_state_t_ptr    = elem_array(3,ie)
-        !$ACC DATA COPY(elem_state_t(*,*,*,np1))
-        elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
-        ttmp(:,:,:,1,ie)=ttmp(:,:,:,1,ie)/dp(:,:,:,ie)
-        ttmp(:,:,:,2,ie)=ttmp(:,:,:,2,ie)/dp(:,:,:,ie)
+        !$ACC DATA COPY(elem_state_t(*,*,k,np1))
+        elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1)/dp(:,:,k,ie)
+        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)/dp(:,:,k,ie)
+        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)/dp(:,:,k,ie)
         !$ACC END DATA
+    enddo
   enddo
   !$ACC end parallel loop
 
   !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher) local(pin, pio, kid, masso, ao,  coefs, z1, z2, ppmdx)
   do ie=nets, nete
     do q=1,qsize
-      !elem_state_qdp_ptr  = elem_array(5,ie) 
-      !call my_remap_Q_ppm(elem_state_Qdp(:,:,:,q,np1_qdp), &
-      !     np,q,dp_star(:,:,:,ie),dp(:,:,:,ie))
-      !=================my_remap_Q_ppm=======================
       do j = 1 , np
         elem_state_qdp_ptr  = elem_array(5,ie)
-        !$ACC DATA copyin(elem_state_qdp(*,*,*,q,np1_qdp)) 
+        !!$ACC DATA copyin(elem_state_qdp(*,*,*,q,np1_qdp)) 
         do i = 1 , np
           pin(1)=0
           pio(1)=0
@@ -3974,10 +3969,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
                                           !It makes sure there's an old interface value below the domain that is larger.
           pin(nlev+1) = pio(nlev+1)       !The total mass in a column does not change.
                                           !Therefore, the pressure of that mass cannot either.
-          do k = 1 , gs
-            dpo_Asher(1   -k,i,j,ie) = dpo_Asher(       k,i,j,ie)
-            dpo_Asher(nlev+k,i,j,ie) = dpo_Asher(nlev+1-k,i,j,ie)
-          enddo
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
@@ -4015,7 +4006,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
               massn1 = massn2
             enddo
         enddo
-        !$ACC end data
+        !!$ACC end data
       enddo
       !=================================
 
