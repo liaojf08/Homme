@@ -3819,7 +3819,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       do j = 1 , np
         do i = 1 , np
                                           !Therefore, the pressure of that mass cannot either.
-        elem_state_t_ptr  = elem_array(3,ie)
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
@@ -3838,6 +3837,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
           ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
 
+            elem_state_t_ptr  = elem_array(3,ie)
             masso(1) = 0.
             do k = 1 , nlev
               ao(k) = elem_state_t(i,j,k,np1)
@@ -3856,32 +3856,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
               elem_state_t(i,j,k,np1) = massn2 - massn1
               massn1 = massn2
             enddo
-        enddo
-      enddo
-  enddo
-  !$ACC END PARALLEL LOOP
-
-  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx) 
-  do ie=nets,nete
-      do j = 1 , np
-        do i = 1 , np
-
-          do k = 1 , nlev
-            kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
-            do while ( pio_Asher(kk,i,j,ie) <= pin_Asher(k+1,i,j,ie) )
-              kk = kk + 1
-            enddo
-            kk = kk - 1                   !kk is now the cell index we're integrating over.
-            if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
-                                          !Top bounds match anyway, so doesn't matter what coefficients are used
-            kid(k) = kk                   !Save for reuse
-            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
-                                          !In fact, we're usually integrating very little or almost all of the cell in question
-            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
-                                                                            !coordinate domain [-0.5,0.5].
-          enddo
-
-          ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
 
             masso(1) = 0.
             do k = 1 , nlev
@@ -3918,49 +3892,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
               ttmp(i,j,k,2,ie) = massn2 - massn1
               massn1 = massn2
             enddo
-        enddo
-      enddo
-    enddo
-  !$ACC END PARALLEL LOOP
 
-  !$ACC PARALLEL LOOP copyin(elem_array,dp) copy(ttmp)
-  do ie=nets,nete
-    do k=1, nlev
-        elem_state_t_ptr    = elem_array(3,ie)
-        !$ACC DATA COPY(elem_state_t(*,*,k,np1))
-        elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1)/dp(:,:,k,ie)
-        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)/dp(:,:,k,ie)
-        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)/dp(:,:,k,ie)
-        !$ACC END DATA
-    enddo
-  enddo
-  !$ACC end parallel loop
-
-  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx)
-  do ie=nets, nete
-    do q=1,qsize
-      do j = 1 , np
         elem_state_qdp_ptr  = elem_array(5,ie)
-        !!$ACC DATA copyin(elem_state_qdp(*,*,*,q,np1_qdp)) 
-        do i = 1 , np
-          
-          do k = 1 , nlev
-            kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
-            do while ( pio_Asher(kk,i,j,ie) <= pin_Asher(k+1,i,j,ie) )
-              kk = kk + 1
-            enddo
-            kk = kk - 1                   !kk is now the cell index we're integrating over.
-            if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
-                                          !Top bounds match anyway, so doesn't matter what coefficients are used
-            kid(k) = kk                   !Save for reuse
-            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
-                                          !In fact, we're usually integrating very little or almost all of the cell in question
-            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
-                                                                            !coordinate domain [-0.5,0.5].
-          enddo
-
-          ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
-
+         do q=1,qsize
             masso(1) = 0.
             do k = 1 , nlev
               ao(k) = elem_state_Qdp(i,j,k,q,np1_qdp)
@@ -3980,14 +3914,23 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
               massn1 = massn2
             enddo
         enddo
-        !!$ACC end data
       enddo
-      !=================================
-
     enddo
   enddo
   !$ACC end parallel loop
 
+  !$ACC PARALLEL LOOP copyin(elem_array,dp) copy(ttmp)
+  do ie=nets,nete
+    do k=1, nlev
+        elem_state_t_ptr    = elem_array(3,ie)
+        !$ACC DATA COPY(elem_state_t(*,*,k,np1))
+        elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1)/dp(:,:,k,ie)
+        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)/dp(:,:,k,ie)
+        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)/dp(:,:,k,ie)
+        !$ACC END DATA
+    enddo
+  enddo
+  !$ACC end parallel loop
   do ie=nets, nete
       elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)
       elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)
