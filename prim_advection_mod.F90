@@ -3729,7 +3729,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   pointer(hvcoord_hybi_ptr, hvcoord_hybi)
   
   real(kind=8) :: hvcoord_hyai_1
-  
+ 
+  real(kind=real_kind) :: zTmp 
   integer, parameter :: gs = 2                              !Number of cells to place in the ghost region
   real(kind=real_kind), dimension(       nlev+2 ) :: pio    !Pressure at interfaces for old grid
   real(kind=real_kind), dimension(       nlev+2, np, np, nets:nete) :: pio_Asher    !Pressure at interfaces for old grid
@@ -3743,7 +3744,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=real_kind), dimension(  1-gs:nlev+gs, np, np,nets:nete) :: dpn_Asher    !change in pressure over a cell for old grid
   real(kind=real_kind), dimension(3,     nlev   ) :: coefs  !PPM coefficients within each cell
   real(kind=real_kind), dimension(       nlev   ) :: z1, z2
-  real(kind=real_kind), dimension(       nlev,np,np,nets:nete   ) :: z1_Asher, z2_Asher
+  real(kind=real_kind), dimension(       nlev,np,np,nets:nete   ) :: z1_Asher, z2_Asher, kid_Asher
   real(kind=real_kind) :: ppmdx(10,0:nlev+1)  !grid spacings
   real(kind=real_kind) :: mymass, massn1, massn2
   call t_startf('vertical_remap')
@@ -3776,12 +3777,11 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   enddo
   !$ACC END PARALLEL LOOP
  
-  !$ACC parallel loop collapse(3) copyout(dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) 
+  !$ACC parallel loop collapse(3) copyout( dpo_Asher, pio_Asher, pin_Asher, z2_Asher, kid_Asher) 
   do ie=nets, nete
     do j=1,np
       do i=1,np
         do k=1,nlev
-          dpn_Asher(k,i,j,ie) = dp(i,j,k,ie)
           dpo_Asher(k,i,j,ie) = dp_star(i,j,k,ie)
         enddo
           do k = 1 , gs
@@ -3791,7 +3791,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           pin_Asher(1,i,j,ie)=0
           pio_Asher(1,i,j,ie)=0
           do k=1,nlev
-             pin_Asher(k+1,i,j,ie)=pin_Asher(k,i,j,ie)+dpn_Asher(k,i,j,ie)
+             pin_Asher(k+1,i,j,ie)=pin_Asher(k,i,j,ie)+dp(i,j,k,ie)
              pio_Asher(k+1,i,j,ie)=pio_Asher(k,i,j,ie)+dpo_Asher(k,i,j,ie)
           enddo
 
@@ -3807,10 +3807,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             kk = kk - 1                   !kk is now the cell index we're integrating over.
             if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
                                           !Top bounds match anyway, so doesn't matter what coefficients are used
-            kid(k) = kk                   !Save for reuse
-            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
+            kid_Asher(k,i,j,ie) = kk                   !Save for reuse
+            !z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
                                           !In fact, we're usually integrating very little or almost all of the cell in question
-            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
+            z2_Asher(k,i,j,ie) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
                                                                             !coordinate domain [-0.5,0.5].
           enddo
 
@@ -3818,7 +3818,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END parallel loop
-  !$ACC parallel loop  copy(ttmp) copyin(dp_star,elem_array)
+  !$ACC parallel loop collapse(2) copy(ttmp) copyin(dp_star,elem_array)
   do ie=nets,nete
     do k=1,nlev
         elem_state_t_ptr    = elem_array(3,ie)
@@ -3830,13 +3830,13 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END PARALLEL LOOP
-  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx)
+  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array,  dpo_Asher,  kid_Asher, z2_Asher) local( masso, ao,  coefs, ppmdx)
   do ie=nets,nete
       do j = 1 , np
         do i = 1 , np
                                           !Therefore, the pressure of that mass cannot either.
 
-
+            zTmp = -0.5D0
             ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
             elem_state_t_ptr  = elem_array(3,ie)
             masso(1) = 0.
@@ -3852,8 +3852,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
-              kk = kid(k)
-              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              kk = kid_Asher(k,i,j,ie)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               elem_state_t(i,j,k,np1) = massn2 - massn1
               massn1 = massn2
             enddo
@@ -3871,8 +3871,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
-              kk = kid(k)
-              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              kk = kid_Asher(k,i,j,ie)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               ttmp(i,j,k,1,ie) = massn2 - massn1
               massn1 = massn2
             enddo
@@ -3888,8 +3888,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
-              kk = kid(k)
-              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              kk = kid_Asher(k,i,j,ie)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               ttmp(i,j,k,2,ie) = massn2 - massn1
               massn1 = massn2
             enddo
@@ -3909,8 +3909,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
-              kk = kid(k)
-              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              kk = kid_Asher(k,i,j,ie)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               elem_state_Qdp(i,j,k,q,np1_qdp) = massn2 - massn1
               massn1 = massn2
             enddo
