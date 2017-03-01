@@ -3702,7 +3702,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   integer :: ie,i,j,k,q,np1,nets,nete,np1_qdp,kk, kid(nlev)
   real (kind=real_kind), dimension(np,np,nlev,nets:nete)  :: dp_star
   real (kind=real_kind), dimension(np,np,nlev,nets:nete)  :: dp
-  real (kind=real_kind), dimension(np,np,nlev,2,nets:nete)  :: ttmp
+  real (kind=real_kind), dimension(np,np,nlev,nets:nete)  :: ttmp1, ttmp2
 
   real(kind=real_kind) :: ps0
   integer(kind=8), dimension(7, nets:nete) :: elem_array
@@ -3754,8 +3754,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
      elem_array(3,ie) = loc(elem(ie)%state%t(:,:,:,:))
      !elem_array(4,ie) = loc(elem(ie)%state%v(:,:,:,:,:))
      elem_array(5,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,:))
-     ttmp(:,:,:,1,ie) = elem(ie)%state%v(:,:,1,:,np1)
-     ttmp(:,:,:,2,ie) = elem(ie)%state%v(:,:,2,:,np1)
+     ttmp1(:,:,:,ie) = elem(ie)%state%v(:,:,1,:,np1)
+     ttmp2(:,:,:,ie) = elem(ie)%state%v(:,:,2,:,np1)
   enddo
   ps0 = hvcoord%ps0
   hvcoord_hyai_1 = hvcoord%hyai(1)
@@ -3818,19 +3818,19 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END parallel loop
-  !$ACC parallel loop collapse(2) copy(ttmp) copyin(dp_star,elem_array)
+  !$ACC parallel loop collapse(2) tile(k:16) copy(ttmp1,ttmp2) copyin(dp_star,elem_array)
   do ie=nets,nete
     do k=1,nlev
         elem_state_t_ptr    = elem_array(3,ie)
         !$ACC DATA copy(elem_state_t(*,*,k,np1))
-        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)*dp_star(:,:,k,ie)
-        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)*dp_star(:,:,k,ie)
+        ttmp1(:,:,k,ie)=ttmp1(:,:,k,ie)*dp_star(:,:,k,ie)
+        ttmp2(:,:,k,ie)=ttmp2(:,:,k,ie)*dp_star(:,:,k,ie)
         elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1) * dp_star(:,:,k,ie)
         !$ACC END DATA
     enddo
   enddo
   !$ACC END PARALLEL LOOP
-  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array,  dpo_Asher,  kid_Asher, z2_Asher) local( masso, ao,  coefs, ppmdx)
+  !$ACC  PARALLEL LOOP collapse(3) tile(i:4) copyin(elem_array,  dpo_Asher,  kid_Asher, z2_Asher) local( masso, ao,  coefs, ppmdx)
   do ie=nets,nete
       do j = 1 , np
         do i = 1 , np
@@ -3841,9 +3841,11 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             elem_state_t_ptr  = elem_array(3,ie)
             masso(1) = 0.
             do k = 1 , nlev
+              !$ACC DATA COPYIN(elem_state_t(i,j,k,np1))
               ao(k) = elem_state_t(i,j,k,np1)
               masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
               ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
+              !$ACC END DATA
             enddo
             do k = 1 , gs
               ao(1   -k) = ao(       k)
@@ -3852,15 +3854,17 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
+              !$ACC DATA COPYOUT(elem_state_t(i,j,k,np1))
               kk = kid_Asher(k,i,j,ie)
               massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               elem_state_t(i,j,k,np1) = massn2 - massn1
               massn1 = massn2
+              !$ACC END DATA
             enddo
 
             masso(1) = 0.
             do k = 1 , nlev
-              ao(k) = ttmp(i,j,k,1,ie)
+              ao(k) = ttmp1(i,j,k,ie)
               masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
               ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
             enddo
@@ -3873,11 +3877,11 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             do k = 1 , nlev
               kk = kid_Asher(k,i,j,ie)
               massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
-              ttmp(i,j,k,1,ie) = massn2 - massn1
+              ttmp1(i,j,k,ie) = massn2 - massn1
               massn1 = massn2
             enddo
             do k = 1 , nlev
-              ao(k) = ttmp(i,j,k,2,ie)
+              ao(k) = ttmp2(i,j,k,ie)
               masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
               ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
             enddo
@@ -3890,11 +3894,12 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             do k = 1 , nlev
               kk = kid_Asher(k,i,j,ie)
               massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
-              ttmp(i,j,k,2,ie) = massn2 - massn1
+              ttmp2(i,j,k,ie) = massn2 - massn1
               massn1 = massn2
             enddo
 
         elem_state_qdp_ptr  = elem_array(5,ie)
+        qsize=0
          do q=1,qsize
             masso(1) = 0.
             do k = 1 , nlev
@@ -3920,21 +3925,21 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   enddo
   !$ACC end parallel loop
 
-  !$ACC PARALLEL LOOP copyin(elem_array,dp) copy(ttmp)
+  !$ACC PARALLEL LOOP collapse(2) tile(k:16) copyin(elem_array,dp) copy(ttmp1,ttmp2)
   do ie=nets,nete
     do k=1, nlev
         elem_state_t_ptr    = elem_array(3,ie)
         !$ACC DATA COPY(elem_state_t(*,*,k,np1))
         elem_state_t(:,:,k,np1) = elem_state_t(:,:,k,np1)/dp(:,:,k,ie)
-        ttmp(:,:,k,1,ie)=ttmp(:,:,k,1,ie)/dp(:,:,k,ie)
-        ttmp(:,:,k,2,ie)=ttmp(:,:,k,2,ie)/dp(:,:,k,ie)
+        ttmp1(:,:,k,ie)=ttmp1(:,:,k,ie)/dp(:,:,k,ie)
+        ttmp2(:,:,k,ie)=ttmp2(:,:,k,ie)/dp(:,:,k,ie)
         !$ACC END DATA
     enddo
   enddo
   !$ACC end parallel loop
   do ie=nets, nete
-      elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1,ie)
-      elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2,ie)
+      elem(ie)%state%v(:,:,1,:,np1)=ttmp1(:,:,:,ie)
+      elem(ie)%state%v(:,:,2,:,np1)=ttmp2(:,:,:,ie)
   enddo
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
