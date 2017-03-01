@@ -3743,6 +3743,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=real_kind), dimension(  1-gs:nlev+gs, np, np,nets:nete) :: dpn_Asher    !change in pressure over a cell for old grid
   real(kind=real_kind), dimension(3,     nlev   ) :: coefs  !PPM coefficients within each cell
   real(kind=real_kind), dimension(       nlev   ) :: z1, z2
+  real(kind=real_kind), dimension(       nlev,np,np,nets:nete   ) :: z1_Asher, z2_Asher
   real(kind=real_kind) :: ppmdx(10,0:nlev+1)  !grid spacings
   real(kind=real_kind) :: mymass, massn1, massn2
   call t_startf('vertical_remap')
@@ -3798,6 +3799,21 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
           pio_Asher(nlev+2,i,j,ie) = pio_Asher(nlev+1,i,j,ie) + 1.  
           pin_Asher(nlev+1,i,j,ie) = pio_Asher(nlev+1,i,j,ie)       
+          do k = 1 , nlev
+            kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
+            do while ( pio_Asher(kk,i,j,ie) <= pin_Asher(k+1,i,j,ie) )
+              kk = kk + 1
+            enddo
+            kk = kk - 1                   !kk is now the cell index we're integrating over.
+            if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
+                                          !Top bounds match anyway, so doesn't matter what coefficients are used
+            kid(k) = kk                   !Save for reuse
+            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
+                                          !In fact, we're usually integrating very little or almost all of the cell in question
+            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
+                                                                            !coordinate domain [-0.5,0.5].
+          enddo
+
       enddo
     enddo
   enddo
@@ -3820,23 +3836,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         do i = 1 , np
                                           !Therefore, the pressure of that mass cannot either.
 
-          do k = 1 , nlev
-            kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
-            do while ( pio_Asher(kk,i,j,ie) <= pin_Asher(k+1,i,j,ie) )
-              kk = kk + 1
-            enddo
-            kk = kk - 1                   !kk is now the cell index we're integrating over.
-            if (kk == nlev+1) kk = nlev   !This is to keep the indices in bounds.
-                                          !Top bounds match anyway, so doesn't matter what coefficients are used
-            kid(k) = kk                   !Save for reuse
-            z1(k) = -0.5D0                !This remapping assumes we're starting from the left interface of an old grid cell
-                                          !In fact, we're usually integrating very little or almost all of the cell in question
-            z2(k) = ( pin_Asher(k+1,i,j,ie) - ( pio_Asher(kk,i,j,ie) + pio_Asher(kk+1,i,j,ie) ) * 0.5 ) / dpo_Asher(kk,i,j,ie)  !PPM interpolants are normalized to an independent
-                                                                            !coordinate domain [-0.5,0.5].
-          enddo
 
-          ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
-
+            ppmdx(:,:) = my_compute_ppm_grids( dpo_Asher(:,i,j,ie) )
             elem_state_t_ptr  = elem_array(3,ie)
             masso(1) = 0.
             do k = 1 , nlev
