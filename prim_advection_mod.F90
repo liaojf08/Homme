@@ -3775,7 +3775,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   enddo
   !$ACC END PARALLEL LOOP
  
-  !!$ACC parallel loop collapse(4) copyout(dpn_Asher, dpo_Asher) 
+  !$ACC parallel loop collapse(3) copyout(dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) 
   do ie=nets, nete
     do j=1,np
       do i=1,np
@@ -3801,7 +3801,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       enddo
     enddo
   enddo
-  !!$ACC END parallel loop
+  !$ACC END parallel loop
   !$ACC parallel loop  copy(ttmp) copyin(dp_star,elem_array)
   do ie=nets,nete
     do k=1,nlev
@@ -3814,19 +3814,12 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END PARALLEL LOOP
-  !$ACC  PARALLEL LOOP collapse(2) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx)
+  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx)
   do ie=nets,nete
-        !elem_state_t_ptr    = elem_array(3,ie)
-
-        !elem_state_t(:,:,:,np1) = elem_state_t(:,:,:,np1) * dp_star(:,:,:,ie)
-        !call my_remap_Q_ppm(elem_state_t(:,:,:,np1),np,1,dp_star(:,:,:,ie),dp(:,:,:,ie))
-        !elem_state_t(:,:,:,np1)=elem_state_t(:,:,:,np1)/dp(:,:,:,ie)
-      !=================my_remap_Q_ppm=======================
       do j = 1 , np
-        elem_state_t_ptr  = elem_array(3,ie)
-        !!$ACC DATA copyin(elem_state_t(*,*,*,np1)) 
         do i = 1 , np
                                           !Therefore, the pressure of that mass cannot either.
+        elem_state_t_ptr  = elem_array(3,ie)
 
           do k = 1 , nlev
             kk = k  !Keep from an order n^2 search operation by assuming the old cell index is close.
@@ -3864,15 +3857,12 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
               massn1 = massn2
             enddo
         enddo
-        !!$ACC end data
       enddo
-      !=================================
   enddo
   !$ACC END PARALLEL LOOP
 
-  !$ACC  PARALLEL LOOP collapse(4) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx) 
+  !$ACC  PARALLEL LOOP collapse(3) copyin(elem_array, dpn_Asher, dpo_Asher, pio_Asher, pin_Asher) local(kid, masso, ao,  coefs, z1, z2, ppmdx) 
   do ie=nets,nete
-      do q = 1, 2
       do j = 1 , np
         do i = 1 , np
 
@@ -3895,7 +3885,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
             masso(1) = 0.
             do k = 1 , nlev
-              ao(k) = ttmp(i,j,k,q,ie)
+              ao(k) = ttmp(i,j,k,1,ie)
               masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
               ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
             enddo
@@ -3908,13 +3898,28 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             do k = 1 , nlev
               kk = kid(k)
               massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
-              ttmp(i,j,k,q,ie) = massn2 - massn1
+              ttmp(i,j,k,1,ie) = massn2 - massn1
+              massn1 = massn2
+            enddo
+            do k = 1 , nlev
+              ao(k) = ttmp(i,j,k,2,ie)
+              masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
+              ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
+            enddo
+            do k = 1 , gs
+              ao(1   -k) = ao(       k)
+              ao(nlev+k) = ao(nlev+1-k)
+            enddo
+            coefs(:,:) = my_compute_ppm( ao , ppmdx )
+            massn1 = 0.
+            do k = 1 , nlev
+              kk = kid(k)
+              massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , z1(k) , z2(k) ) * dpo_Asher(kk,i,j,ie)
+              ttmp(i,j,k,2,ie) = massn2 - massn1
               massn1 = massn2
             enddo
         enddo
       enddo
-  enddo
-      !=================================
     enddo
   !$ACC END PARALLEL LOOP
 
