@@ -3688,9 +3688,6 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   !
   use kinds, only : real_kind
   use hybvcoord_mod, only : hvcoord_t
-  use control_mod, only :  rsplit
-  use parallel_mod, only : abortmp
-  use fvm_control_volume_mod, only : fvm_struct
 
   type(fvm_struct), intent(inout) :: fvm(:)
 
@@ -3841,11 +3838,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             elem_state_t_ptr  = elem_array(3,ie)
             masso(1) = 0.
             do k = 1 , nlev
-              !$ACC DATA COPYIN(elem_state_t(i,j,k,np1))
               ao(k) = elem_state_t(i,j,k,np1)
               masso(k+1) = masso(k) + ao(k) !Accumulate the old mass. This will simplify the remapping
               ao(k) = ao(k) / dpo_Asher(k,i,j,ie)        !Divide out the old grid spacing because we want the tracer mixing ratio, not mass.
-              !$ACC END DATA
             enddo
             do k = 1 , gs
               ao(1   -k) = ao(       k)
@@ -3854,12 +3849,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
             coefs(:,:) = my_compute_ppm( ao , ppmdx )
             massn1 = 0.
             do k = 1 , nlev
-              !$ACC DATA COPYOUT(elem_state_t(i,j,k,np1))
               kk = kid_Asher(k,i,j,ie)
               massn2 = masso(kk) + my_integrate_parabola( coefs(:,kk) , zTmp , z2_Asher(k,i,j,ie) ) * dpo_Asher(kk,i,j,ie)
               elem_state_t(i,j,k,np1) = massn2 - massn1
               massn1 = massn2
-              !$ACC END DATA
             enddo
 
             masso(1) = 0.
@@ -4282,7 +4275,6 @@ subroutine my_remap_Q_ppm(Qdp,nx,q,dp1,dp2)
 end subroutine my_remap_Q_ppm
 
 function my_compute_ppm_grids( dx )   result(rslt)
-  use control_mod, only: vert_remap_q_alg
   implicit none
   real(kind=real_kind), intent(in) :: dx(-1:nlev+2)  !grid spacings
   real(kind=real_kind)             :: rslt(10,0:nlev+1)  !grid spacings
@@ -4290,13 +4282,8 @@ function my_compute_ppm_grids( dx )   result(rslt)
   integer :: indB, indE
 
   !Calculate grid-based coefficients for stage 1 of compute_ppm
-  if (vert_remap_q_alg == 2) then
-    indB = 2
-    indE = nlev-1
-  else
     indB = 0
     indE = nlev+1
-  endif
   do j = indB , indE
     rslt( 1,j) = dx(j) / ( dx(j-1) + dx(j) + dx(j+1) )
     rslt( 2,j) = ( 2.*dx(j-1) + dx(j) ) / ( dx(j+1) + dx(j) )
@@ -4304,13 +4291,7 @@ function my_compute_ppm_grids( dx )   result(rslt)
   enddo
 
   !Caculate grid-based coefficients for stage 2 of compute_ppm
-  if (vert_remap_q_alg == 2) then
-    indB = 2
-    indE = nlev-2
-  else
-    indB = 0
     indE = nlev
-  endif
   do j = indB , indE
     rslt( 4,j) = dx(j) / ( dx(j) + dx(j+1) )
     rslt( 5,j) = 1. / sum( dx(j-1:j+2) )
@@ -4328,7 +4309,6 @@ end function my_compute_ppm_grids
 
 !This computes a limited parabolic interpolant using a net 5-cell stencil, but the stages of computation are broken up into 3 stages
 function my_compute_ppm( a , dx )    result(coefs)
-  use control_mod, only: vert_remap_q_alg
   implicit none
   real(kind=real_kind), intent(in) :: a    (    -1:nlev+2)  !Cell-mean values
   real(kind=real_kind), intent(in) :: dx   (10,  0:nlev+1)  !grid spacings
@@ -4343,13 +4323,8 @@ function my_compute_ppm( a , dx )    result(coefs)
   integer :: indB, indE
 
   ! Stage 1: Compute dma for each cell, allowing a 1-cell ghost stencil below and above the domain
-  if (vert_remap_q_alg == 2) then
-    indB = 2
-    indE = nlev-1
-  else
     indB = 0
     indE = nlev+1
-  endif
   do j = indB , indE
     da = dx(1,j) * ( dx(2,j) * ( a(j+1) - a(j) ) + dx(3,j) * ( a(j) - a(j-1) ) )
     dma(j) = minval( (/ abs(da) , 2. * abs( a(j) - a(j-1) ) , 2. * abs( a(j+1) - a(j) ) /) ) * sign(1.D0,da)
@@ -4357,13 +4332,7 @@ function my_compute_ppm( a , dx )    result(coefs)
   enddo
 
   ! Stage 2: Compute ai for each cell interface in the physical domain (dimension nlev+1)
-  if (vert_remap_q_alg == 2) then
-    indB = 2
-    indE = nlev-2
-  else
-    indB = 0
     indE = nlev
-  endif
   do j = indB , indE
     ai(j) = a(j) + dx(4,j) * ( a(j+1) - a(j) ) + dx(5,j) * ( dx(6,j) * ( dx(7,j) - dx(8,j) ) &
          * ( a(j+1) - a(j) ) - dx(9,j) * dma(j+1) + dx(10,j) * dma(j) )
@@ -4371,13 +4340,7 @@ function my_compute_ppm( a , dx )    result(coefs)
 
   ! Stage 3: Compute limited PPM interpolant over each cell in the physical domain
   ! (dimension nlev) using ai on either side and ao within the cell.
-  if (vert_remap_q_alg == 2) then
-    indB = 3
-    indE = nlev-2
-  else
     indB = 1
-    indE = nlev
-  endif
   do j = indB , indE
     al = ai(j-1)
     ar = ai(j  )
@@ -4396,12 +4359,6 @@ function my_compute_ppm( a , dx )    result(coefs)
   !If we're not using a mirrored boundary condition, then make the two cells bordering the top and bottom
   !material boundaries piecewise constant. Zeroing out the first and second moments, and setting the zeroth
   !moment to the cell mean is sufficient to maintain conservation.
-  if (vert_remap_q_alg == 2) then
-    coefs(0,1:2) = a(1:2)
-    coefs(1:2,1:2) = 0.
-    coefs(0,nlev-1:nlev) = a(nlev-1:nlev)
-    coefs(1:2,nlev-1:nlev) = 0.D0
-  endif
 end function my_compute_ppm
 function my_integrate_parabola( a , x1 , x2 )    result(mass)
   implicit none
