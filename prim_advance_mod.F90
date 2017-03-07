@@ -2505,6 +2505,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   real (kind=8) :: conghui_tmp_var
 
+  !write(*,*) "we built this city"
 
   hvcoord_ps0      = hvcoord%ps0
   hvcoord_hyai_ptr = loc(hvcoord%hyai)
@@ -2522,6 +2523,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      elem_state_v_np1_ptr          = elem_array(7,ie)
      elem_state_v_nm1_ptr          = elem_array(8,ie)
      elem_derived_vn0_ptr          = elem_array(9,ie)
+     elem_state_Qdp_1_qn0_ptr      = elem_array(10,ie)
      elem_state_T_n0_ptr           = elem_array(11,ie)
      elem_state_T_np1_ptr          = elem_array(12,ie)
      elem_state_T_nm1_ptr          = elem_array(13,ie)
@@ -2534,8 +2536,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      elem_state_ps_v_nm1_ptr       = elem_array(20,ie)
      elem_metdet_ptr               = elem_array(21,ie)
      elem_rmetdet_ptr              = elem_array(22,ie)
+     elem_D_ptr                    = elem_array(23,ie)
 
-     !$ACC DATA COPYIN(elem_array, elem_Dinv, elem_state_phis, elem_fcor, elem_spheremp, elem_state_ps_v_nm1, elem_metdet, elem_rmetdet) copyout(elem_state_ps_v_np1) annotate(entire(deriv_dvv, elem_state_ps_v_nm1, elem_spheremp, elem_state_ps_v_np1, elem_fcor, elem_Dinv, elem_state_phis, elem_rmetdet, elem_metdet))
+     !$ACC DATA COPYIN(elem_array, elem_Dinv, elem_state_phis, elem_fcor, elem_spheremp, elem_state_ps_v_nm1, elem_metdet, elem_rmetdet, elem_D) copyout(elem_state_ps_v_np1) annotate(entire(deriv_dvv, elem_state_ps_v_nm1, elem_spheremp, elem_state_ps_v_np1, elem_fcor, elem_Dinv, elem_state_phis, elem_rmetdet, elem_D, elem_metdet))
      !phi => elem_derived_phi
      suml(:,:)= 0
      phii(:,:,nlev+1) = 0
