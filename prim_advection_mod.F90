@@ -1222,35 +1222,30 @@ contains
     integer :: i,j,k,l,ie,q,nmin
     integer :: nfilt,rkstage,rhs_multiplier
     integer :: n0_qdp, np1_qdp
+    integer(kind=8), dimension(11,nets:nete)  :: elem_array
 
     call t_barrierf('sync_prim_advec_tracers_remap_k2', hybrid%par%comm)
     call t_startf('prim_advec_tracers_remap_rk2')
     call TimeLevel_Qdp( tl, qsplit, n0_qdp, np1_qdp) !time levels for qdp are not the same
     rkstage = 3 !   3 stage RKSSP scheme, with optimal SSP CFL
+    !do ie=nets,nete
+    !    elem_array(1,ie) = loc(elem(ie)%derived%vn0(:,:,:,:))
+    !    
+    !enddo
 
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    ! RK2 2D advection step
-    ! note: stage 3 we take the oppertunity to DSS omega
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    ! use these for consistent advection (preserve Q=1)
-    ! derived%vdp_ave        =  mean horiz. flux:   U*dp
-    ! derived%eta_dot_dpdn    =  mean vertical velocity (used for remap)
-    ! derived%omega_p         =  advection code will DSS this for the physics, but otherwise
-    !                            it is not needed
-    ! Also: save a copy of div(U dp) in derived%div(:,:,:,1), which will be DSS'd
-    !       and a DSS'ed version stored in derived%div(:,:,:,2)
+    call t_startf('cal before euler_step')
+    !!$ACC parallel loop collapse(2) 
     do ie=nets,nete
-#if (defined ELEMENT_OPENMP)
-!$omp parallel do private(k, gradQ)
-#endif
       do k=1,nlev
-        ! div( U dp Q),
-        gradQ(:,:,1)=elem(ie)%derived%vn0(:,:,1,k)
-        gradQ(:,:,2)=elem(ie)%derived%vn0(:,:,2,k)
-        elem(ie)%derived%divdp(:,:,k) = divergence_sphere(gradQ,deriv,elem(ie))
+        !gradQ(:,:,1)=elem(ie)%derived%vn0(:,:,1,k)
+        !gradQ(:,:,2)=elem(ie)%derived%vn0(:,:,2,k)
+        !elem(ie)%derived%divdp(:,:,k) = divergence_sphere(gradQ,deriv,elem(ie))
+        call my_divergence_sphere(elem(ie)%derived%vn0(:,:,:,k), deriv%dvv, elem(ie)%metdet(:,:), elem(ie)%Dinv(:,:,:,:), elem(ie)%rmetdet(:,:), rrearth, elem(ie)%derived%divdp(:,:,k))
+         elem(ie)%derived%divdp_proj(:,:,k) = elem(ie)%derived%divdp(:,:,k)
       enddo
-      elem(ie)%derived%divdp_proj(:,:,:) = elem(ie)%derived%divdp(:,:,:)
     enddo
+    !!$ACC end parallel loop
+    call t_stopf('cal before euler_step')
 
     !rhs_multiplier is for obtaining dp_tracers at each stage:
     !dp_tracers(stage) = dp - rhs_multiplier*dt*divdp_proj
@@ -1264,16 +1259,20 @@ contains
     call euler_step( np1_qdp , np1_qdp , dt/2 , elem , hvcoord , hybrid , deriv , nets , nete , DSSomega       , rhs_multiplier )
 
     !to finish the 2D advection step, we need to average the t and t+2 results to get a second order estimate for t+1.
+    call t_startf('cal after euler_step')
     call qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
+    call t_stopf('cal after euler_step')
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !  Dissipation
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    if ( limiter_option == 8 .or. nu_p > 0 ) then
-      ! dissipation was applied in RHS.
-    else
-      call advance_hypervis_scalar(edgeadv,elem,hvcoord,hybrid,deriv,tl%np1,np1_qdp,nets,nete,dt)
-    endif
+    !if ( limiter_option == 8 .or. nu_p > 0 ) then
+    !  ! dissipation was applied in RHS.
+    !  write(*,*) "Asher is dying"
+    !else
+    !  write(*,*) "Asher is stupid"
+    !  call advance_hypervis_scalar(edgeadv,elem,hvcoord,hybrid,deriv,tl%np1,np1_qdp,nets,nete,dt)
+    !endif
 
     call t_stopf('prim_advec_tracers_remap_rk2')
   end subroutine prim_advec_tracers_remap_rk2
