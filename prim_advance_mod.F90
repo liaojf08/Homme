@@ -11,6 +11,7 @@ module prim_advance_mod
   use kinds, only : real_kind, iulog
   use perf_mod, only: t_startf, t_stopf, t_barrierf ! _EXTERNAL
   use parallel_mod, only : abortmp
+use control_mod, only : north, south, east, west, neast, nwest, seast, swest
   implicit none
   private
   save
@@ -1697,6 +1698,23 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(np,np,2) :: lap_v
   real (kind=real_kind) :: v1,v2,dt,heating,utens_tmp,vtens_tmp,ttens_tmp,dptens_tmp
 
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_dpdiss_ave
+  pointer(elem_derived_dpdiss_ave_ptr, elem_derived_dpdiss_ave)
+
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_dp3d_nt
+  pointer(elem_state_dp3d_nt_ptr, elem_state_dp3d_nt)
+  
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_dpdiss_biharmonic
+  pointer(elem_derived_dpdiss_biharmonic_ptr, elem_derived_dpdiss_biharmonic)
+
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_T_nt
+  pointer(elem_state_T_nt_ptr, elem_state_T_nt)
+
+  real (kind=real_kind), dimension(np,np,2,nlev) :: elem_state_v_nt
+  pointer(elem_state_v_nt_ptr, elem_state_v_nt)
+ 
+  
+  integer(kind=8), dimension(5,nets:nete) :: elem_array
 
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
@@ -1712,15 +1730,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      do ic=1,hypervis_subcycle
         do ie=nets,nete
 
-#if (defined ELEMENT_OPENMP)
-!$omp parallel do private(k,lap_t,lap_v,deriv,i,j)
-#endif
            do k=1,nlev
               lap_t=laplace_sphere_wk(elem(ie)%state%T(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
               lap_v=vlaplace_sphere_wk(elem(ie)%state%v(:,:,:,k,nt),deriv,elem(ie),var_coef=.false.)
-              ! advace in time.  (note: DSS commutes with time stepping, so we
-              ! can time advance and then DSS.  this has the advantage of
-              ! not letting any discontinuties accumulate in p,v via roundoff
               do j=1,np
                  do i=1,np
                     elem(ie)%state%T(i,j,k,nt)=elem(ie)%state%T(i,j,k,nt)*elem(ie)%spheremp(i,j)  +  dt*nu_s*lap_t(i,j)
@@ -1778,27 +1790,27 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 !                IE dissipation from continuity equation
 !                (1 deg: to about 0.1 W/m^2)
 !
+  do ie = nets,nete
+      elem_array(1,ie) = loc(elem(ie)%derived%dpdiss_ave)
+      elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,nt))
+      elem_array(3,ie) = loc(elem(ie)%derived%dpdiss_biharmonic)
+      elem_array(4,ie) = loc(elem(ie)%state%T(:,:,:,nt))
+      elem_array(5,ie) = loc(elem(ie)%state%v(:,:,:,:,nt))
+  enddo
+
   if (hypervis_order == 2) then
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
      do ic=1,hypervis_subcycle
         call biharmonic_wk_dp3d(elem,dptens,ttens,vtens,deriv,edge3,hybrid,nt,nets,nete,nu_ratio)
 
         ! conghui: this may be optimized
+        call t_startf("hypervis_dp before bndry")
         do ie=nets,nete
-
-           ! comptue mean flux
-           if (nu_p>0) then
-              elem(ie)%derived%dpdiss_ave(:,:,:)=elem(ie)%derived%dpdiss_ave(:,:,:)+&
-                   eta_ave_w*elem(ie)%state%dp3d(:,:,:,nt)/hypervis_subcycle
-              elem(ie)%derived%dpdiss_biharmonic(:,:,:)=elem(ie)%derived%dpdiss_biharmonic(:,:,:)+&
-                   eta_ave_w*dptens(:,:,:,ie)/hypervis_subcycle
-           endif
            do k=1,nlev
-              ! advace in time.
-              ! note: DSS commutes with time stepping, so we can time advance and then DSS.
-              ! note: weak operators alreayd have mass matrix "included"
-
-              ! add regular diffusion in top 3 layers:
+              elem(ie)%derived%dpdiss_ave(:,:,k)=elem(ie)%derived%dpdiss_ave(:,:,k)+&
+                   eta_ave_w*elem(ie)%state%dp3d(:,:,k,nt)/hypervis_subcycle
+              elem(ie)%derived%dpdiss_biharmonic(:,:,k)=elem(ie)%derived%dpdiss_biharmonic(:,:,k)+&
+                   eta_ave_w*dptens(:,:,k,ie)/hypervis_subcycle
               if (nu_top>0 .and. k<=3) then
                  lap_t=laplace_sphere_wk(elem(ie)%state%T(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
                  lap_dp=laplace_sphere_wk(elem(ie)%state%dp3d(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
@@ -1829,7 +1841,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                  enddo
               enddo
            enddo
-
+        enddo
+        do ie=nets,nete
 
            kptr=0
            call edgeVpack(edge3, ttens(:,:,:,ie),nlev,kptr,elem(ie)%desc)
@@ -1839,9 +1852,11 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
            call edgeVpack(edge3,dptens(:,:,:,ie),nlev,kptr,elem(ie)%desc)
         enddo
 
+        call t_stopf("hypervis_dp before bndry")
 
         call bndry_exchangeV(hybrid,edge3)
 
+        call t_startf("hypervis_dp after bndry")
         do ie=nets,nete
 
            kptr=0
@@ -1850,7 +1865,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
            call edgeVunpack(edge3, vtens(:,:,:,:,ie), 2*nlev, kptr, elem(ie)%desc)
            kptr=3*nlev
            call edgeVunpack(edge3, dptens(:,:,:,ie), nlev, kptr, elem(ie)%desc)
-
+        !enddo
+        !do ie=nets,nete
            do k=1,nlev
               vtens(:,:,1,k,ie)=dt*vtens(:,:,1,k,ie)*elem(ie)%rspheremp(:,:)
               vtens(:,:,2,k,ie)=dt*vtens(:,:,2,k,ie)*elem(ie)%rspheremp(:,:)
@@ -1882,6 +1898,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               enddo
            enddo
          enddo ! ie
+         call t_stopf("hypervis_dp after bndry")
        enddo ! cycle
   endif
 
@@ -2523,7 +2540,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      elem_state_v_np1_ptr          = elem_array(7,ie)
      elem_state_v_nm1_ptr          = elem_array(8,ie)
      elem_derived_vn0_ptr          = elem_array(9,ie)
-     elem_state_Qdp_1_qn0_ptr      = elem_array(10,ie)
+     !elem_state_Qdp_1_qn0_ptr      = elem_array(10,ie)
      elem_state_T_n0_ptr           = elem_array(11,ie)
      elem_state_T_np1_ptr          = elem_array(12,ie)
      elem_state_T_nm1_ptr          = elem_array(13,ie)
@@ -2543,17 +2560,17 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      suml(:,:)= 0
      phii(:,:,nlev+1) = 0
      do k=1,nlev
-           !$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k))
+           !$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k),elem_state_dp3d_n0(*,*,k-1))
            if (k /= 1) then
-             p(:,:,k)=p(:,:,k-1) + elem_state_dp3d_n0(:,:,k-1)/2 + elem_state_dp3d_n0(:,:,k)/2
+             p(:,:,k)=p(:,:,k-1) + elem_state_dp3d_n0(:,:,k-1)*0.5d0 + elem_state_dp3d_n0(:,:,k)*0.5d0
            else
-             p(:,:,1)=hvcoord_hyai(1)*hvcoord_ps0 + elem_state_dp3d_n0(:,:,1)/2
+             p(:,:,1)=hvcoord_hyai(1)*hvcoord_ps0 + elem_state_dp3d_n0(:,:,1)*0.5d0
            endif
            !$ACC END DATA
      enddo
      do k=nlev,1,-1
         !$ACC DATA COPYIN(elem_state_dp3d_n0(*,*,k),elem_state_T_n0(*,*,k))
-        phii(:,:,k) = phii(:,:,k+1) + Rgas*elem_state_T_n0(:,:,k)*elem_state_dp3d_n0(:,:,k)*0.5d0/p(:,:,k)*2
+        phii(:,:,k) = phii(:,:,k+1) + Rgas*elem_state_T_n0(:,:,k)*elem_state_dp3d_n0(:,:,k)/p(:,:,k)
         !$ACC END DATA
      enddo
      do k = 1, nlev
@@ -2572,11 +2589,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
        ! edit by conghui
        call my_divergence_sphere(vtemp(:,:,:),deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),my_rrearth, divdp(:,:))
        call my_vorticity_sphere(elem_state_v_n0(:,:,:,k),deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vort(:,:))
-       do j=1,4   !   Loop inversion (AAM)
-         do i=1,4
            elem_derived_phi(:,:,k) = elem_state_phis(:,:) + phii(:,:,k+1) + Rgas*elem_state_T_n0(:,:,k)*elem_state_dp3d_n0(:,:,k)*0.5d0/p(:,:,k)
-         enddo
-       enddo
        do j=1,4   !   Loop inversion (AAM)
          do i=1,4
            hkk = 0.5d0/p(i,j,k)
@@ -2723,6 +2736,46 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   integer(kind=8) :: count_start, count_stop, count_rate, count_max
   integer(kind=8), dimension(23,nets:nete) :: elem_array
 
+  real (kind=8), dimension(np,np)   :: elem_state_ps_v_np1
+  pointer(elem_state_ps_v_np1_ptr, elem_state_ps_v_np1)
+  
+  real(kind=8), dimension(nlev) :: edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8
+  pointer(edge_buf_5_ptr, edge_buf_5)
+  pointer(edge_buf_6_ptr, edge_buf_6)
+  pointer(edge_buf_7_ptr, edge_buf_7)
+  pointer(edge_buf_8_ptr, edge_buf_8)
+
+  real(kind=8), dimension(nlev) :: edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4
+  pointer(edge_buf_in_1_ptr, edge_buf_in_1)
+  pointer(edge_buf_in_2_ptr, edge_buf_in_2)
+  pointer(edge_buf_in_3_ptr, edge_buf_in_3)
+  pointer(edge_buf_in_4_ptr, edge_buf_in_4)
+
+
+  real(kind=8), dimension(nlev) :: edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4
+  pointer(edge_buf_is_1_ptr, edge_buf_is_1)
+  pointer(edge_buf_is_2_ptr, edge_buf_is_2)
+  pointer(edge_buf_is_3_ptr, edge_buf_is_3)
+  pointer(edge_buf_is_4_ptr, edge_buf_is_4)
+
+  real(kind=8), dimension(nlev) :: edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4
+  pointer(edge_buf_ie_1_ptr, edge_buf_ie_1)
+  pointer(edge_buf_ie_2_ptr, edge_buf_ie_2)
+  pointer(edge_buf_ie_3_ptr, edge_buf_ie_3)
+  pointer(edge_buf_ie_4_ptr, edge_buf_ie_4)
+
+  real(kind=8), dimension(nlev) :: edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4
+  pointer(edge_buf_iw_1_ptr, edge_buf_iw_1)
+  pointer(edge_buf_iw_2_ptr, edge_buf_iw_2)
+  pointer(edge_buf_iw_3_ptr, edge_buf_iw_3)
+  pointer(edge_buf_iw_4_ptr, edge_buf_iw_4)
+  
+  logical, dimension(8) :: elem_desc_reverse
+  pointer(elem_desc_reverse_ptr, elem_desc_reverse)
+
+  integer, dimension(8) :: elem_desc_putmapP
+  pointer(elem_desc_putmapP_ptr, elem_desc_putmapP)
+  
   call t_barrierf('sync_compute_and_apply_rhs', hybrid%par%comm)
   call t_startf('compute_and_apply_rhs')
 
@@ -2762,8 +2815,41 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   !call system_clock(count_stop, count_rate, count_max)
    !write(*,*) "My_advance_acc time=",count_stop-count_start
    do ie=nets,nete
+      elem_desc_reverse_ptr            = loc(elem(ie)%desc%reverse)
+      elem_desc_putmapP_ptr            = loc(elem(ie)%desc%putmapP)
+      edge_buf_5_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(5)+1))
+      edge_buf_6_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(6)+1))
+      edge_buf_7_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(7)+1))
+      edge_buf_8_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(8)+1))
+      edge_buf_in_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+1))
+      edge_buf_in_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+2))
+      edge_buf_in_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+3))
+      edge_buf_in_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+4))
+      edge_buf_is_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+1))
+      edge_buf_is_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+2))
+      edge_buf_is_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+3))
+      edge_buf_is_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+4))
+      edge_buf_ie_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+1))
+      edge_buf_ie_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+2))
+      edge_buf_ie_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+3))
+      edge_buf_ie_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+4))
+      edge_buf_iw_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+1))
+      edge_buf_iw_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+2))
+      edge_buf_iw_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+3))
+      edge_buf_iw_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+4))
+      
+      !elem_state_ps_v_np1 = elem_array(19,ie)
+
      kptr=0
      call edgeVpack(edge3p1, elem(ie)%state%ps_v(:,:,np1),1,kptr,elem(ie)%desc)
+      
+     !call my_edgeVpack_acc(elem(ie)%state%T(:,:,:,np1) , nlev , 1 , elem_desc_putmapP(:), &
+     !    elem_desc_reverse, &
+     !    edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
+     !    edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, &
+     !    edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+     !    edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+     !    edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
 
      kptr=1
      call edgeVpack(edge3p1, elem(ie)%state%T(:,:,:,np1),nlev,kptr,elem(ie)%desc)
@@ -2771,10 +2857,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      kptr=nlev+1
      call edgeVpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1),2*nlev,kptr,elem(ie)%desc)
 
-     if (rsplit>0) then
-        kptr=kptr+2*nlev
-        call edgeVpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
-     endif
+     kptr=kptr+2*nlev
+     call edgeVpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
   end do
 
   ! =============================================================
@@ -2797,18 +2881,13 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      kptr=nlev+1
      call edgeVunpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1), 2*nlev, kptr, elem(ie)%desc)
 
-     if (rsplit>0) then
         kptr=kptr+2*nlev
         call edgeVunpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
-     endif
 
      ! ====================================================
      ! Scale tendencies by inverse mass matrix
      ! ====================================================
 
-#if (defined ELEMENT_OPENMP)
-!$omp parallel do private(k,i,j)
-#endif
      do k=1,nlev
         elem(ie)%state%T(:,:,k,np1)   = elem(ie)%rspheremp(:,:)*elem(ie)%state%T(:,:,k,np1)
         elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,1,k,np1)
@@ -2839,6 +2918,154 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
 
 
+  subroutine my_edgeVpack_acc(v,vlyr,kptr,desc_putmapP, &
+      desc_reverse, &
+      edge_buf_5,edge_buf_6,edge_buf_7,edge_buf_8, &
+      edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4, &
+      edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4, &
+      edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4, &
+      edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4)
+
+
+   !integer, public, parameter :: west  = 1
+   !integer, public, parameter :: east  = 2
+   !integer, public, parameter :: south = 3
+   !integer, public, parameter :: north = 4
+
+   !integer, public, parameter :: swest = 5
+   !integer, public, parameter :: seast = 6
+   !integer, public, parameter :: nwest = 7
+   !integer, public, parameter :: neast = 8
+   !integer, public, parameter :: max_corner_elem = 1
+   implicit none
+    integer,                                         intent(in)     :: vlyr
+    real (kind=8),dimension(4,4,constLev),                 intent(in)     :: v
+    integer,                                         intent(in)     :: kptr
+    integer, dimension(8),                           intent(in)     :: desc_putmapP
+    logical,dimension(8),                            intent(in)     :: desc_reverse
+    real(kind=8), dimension(constLev),                     intent(inout)  :: edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8
+    real(kind=8), dimension(constLev),                     intent(inout)  :: edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4
+    real(kind=8), dimension(constLev),                     intent(inout)  :: edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4
+    real(kind=8), dimension(constLev),                     intent(inout)  :: edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4
+    real(kind=8), dimension(constLev),                     intent(inout)  :: edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4
+
+
+    ! Local variables
+    logical, parameter :: UseUnroll = .TRUE.
+    integer :: i,k,ir,ll
+
+    integer :: is,ie,in,iw
+
+  !integer :: rank,ierr
+  !include "mpif.h"
+  !call MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+
+    is = desc_putmapP(3)
+    ie = desc_putmapP(2)
+    in = desc_putmapP(4)
+    iw = desc_putmapP(1)
+       do k=1,vlyr
+          !do i=1,np,2
+             !edge%buf(kptr+k,is+i)   = v(i  ,1 ,k)
+             !edge%buf(kptr+k,is+i+1) = v(i+1,1 ,k)
+             !edge%buf(kptr+k,ie+i)   = v(np ,i ,k)
+             !edge%buf(kptr+k,ie+i+1) = v(np ,i+1 ,k)
+             !edge%buf(kptr+k,in+i)   = v(i  ,np,k)
+             !edge%buf(kptr+k,in+i+1) = v(i+1  ,np,k)
+             !edge%buf(kptr+k,iw+i)   = v(1  ,i ,k)
+             !edge%buf(kptr+k,iw+i+1) = v(1  ,i+1 ,k)
+          !enddo
+          edge_buf_in_1(k) = v(1,4,k)
+          edge_buf_in_2(k) = v(2,4,k)
+          edge_buf_in_3(k) = v(3,4,k)
+          edge_buf_in_4(k) = v(4,4,k)
+          edge_buf_is_1(k) = v(1,1,k)
+          edge_buf_is_2(k) = v(2,1,k)
+          edge_buf_is_3(k) = v(3,1,k)
+          edge_buf_is_4(k) = v(4,1,k)
+          edge_buf_ie_1(k) = v(4,1,k)
+          edge_buf_ie_2(k) = v(4,2,k)
+          edge_buf_ie_3(k) = v(4,3,k)
+          edge_buf_ie_4(k) = v(4,4,k)
+          edge_buf_iw_1(k) = v(1,1,k)
+          edge_buf_iw_2(k) = v(1,2,k)
+          edge_buf_iw_3(k) = v(1,3,k)
+          edge_buf_iw_4(k) = v(1,4,k)
+       end do
+
+
+
+    if(desc_reverse(3)) then
+       do k=1,vlyr
+             edge_buf_is_4(k)=v(1,1,k)
+             edge_buf_is_3(k)=v(2,1,k)
+             edge_buf_is_2(k)=v(3,1,k)
+             edge_buf_is_1(k)=v(4,1,k)
+        enddo
+    endif
+
+    if(desc_reverse(2)) then
+       do k=1,vlyr
+             edge_buf_ie_4(k)=v(4,1,k)
+             edge_buf_ie_3(k)=v(4,2,k)
+             edge_buf_ie_2(k)=v(4,3,k)
+             edge_buf_ie_1(k)=v(4,4,k)
+       enddo
+    endif
+
+    if(desc_reverse(4)) then
+       do k=1,vlyr
+             edge_buf_in_4(k)=v(1,4,k)
+             edge_buf_in_3(k)=v(2,4,k)
+             edge_buf_in_2(k)=v(3,4,k)
+             edge_buf_in_1(k)=v(4,4,k)
+       enddo
+    endif
+
+    if(desc_reverse(1)) then
+       do k=1,vlyr
+             edge_buf_iw_4(k)=v(1,1,k)
+             edge_buf_iw_3(k)=v(1,2,k)
+             edge_buf_iw_2(k)=v(1,3,k)
+             edge_buf_iw_1(k)=v(1,4,k)
+       enddo
+    endif
+
+
+! SWEST
+    ll = 5
+        if (desc_putmapP(ll) /= -1) then
+            do k=1,vlyr
+                edge_buf_5(k)=v(1  ,1 ,k)
+            end do
+        end if
+
+! SEAST
+    ll = 6
+        if (desc_putmapP(ll) /= -1) then
+            do k=1,vlyr
+                edge_buf_6(k)=v(4 ,1 ,k)
+            end do
+        end if
+
+! NEAST
+    ll = 8
+        if (desc_putmapP(ll) /= -1) then
+            do k=1,vlyr
+                edge_buf_8(k)=v(4 ,4,k)
+            end do
+        end if
+
+! NWEST
+     ll = 7
+        if (desc_putmapP(ll) /= -1) then
+            do k=1,vlyr
+                edge_buf_7(k)=v(1  ,4,k)
+            end do
+        end if
+
+
+  end subroutine my_edgeVpack_acc
 
 
   subroutine compute_frontogenesis(frontga,frontgf,psurf_ref,hvcoord,tl,&
