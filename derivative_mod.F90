@@ -2476,13 +2476,7 @@ endif
     real(kind=real_kind), optional :: nu_ratio
     real(kind=real_kind) :: laplace(np,np,2)
 
-    if (which_vlaplace .eq. 2) then
-      laplace=cartesian_laplace_sphere_wk(v,deriv,elem,var_coef,nu_ratio)
-    else if (which_vlaplace .eq. 1) then
-      laplace=laplace_sphere_wk_orig(v,deriv,elem,var_coef,nu_ratio)
-    else
       laplace=laplace_sphere_wk_new(v,deriv,elem,var_coef,nu_ratio)
-    endif
 
   end function vlaplace_sphere_wk
 

@@ -1820,7 +1820,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               if (nu_top>0 .and. k<=3) then
                  lap_t=laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie),var_coef=.false.)
                  lap_dp=laplace_sphere_wk(elem_state_dp3d(:,:,k),deriv,elem(ie),var_coef=.false.)
-                 lap_v=vlaplace_sphere_wk(elem_state_v(:,:,:,k),deriv,elem(ie),var_coef=.false.)
+                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),var_coef=.false.)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
@@ -1914,6 +1914,50 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
 
 
+  function my_laplace_sphere_wk_new(v,deriv,elem,var_coef,nu_ratio) result(laplace)
+!
+!   input:  v = vector in lat-lon coordinates
+!   ouput:  weak laplacian of v, in lat-lon coordinates
+!
+!   du/dt = laplace(u) = grad(div) - curl(vor)
+!   < PHI du/dt > = < PHI laplace(u) >        PHI = covariant, u = contravariant
+!                 = < PHI grad(div) >  - < PHI curl(vor) >
+!                 = grad_wk(div) - curl_wk(vor)               
+    use derivative_mod, only : derivative_t, divergence_sphere, gradient_sphere, vorticity_sphere, gradient_sphere_wk_testcov, curl_sphere_wk_testcov
+    use element_mod, only: element_t
+    use physical_constants, only: rrearth
+    real(kind=real_kind), intent(in) :: v(4,4,2) 
+    logical :: var_coef
+    type (derivative_t)              :: deriv
+    type (element_t)                 :: elem
+    real(kind=real_kind) :: laplace(4,4,2)
+    real(kind=real_kind), optional :: nu_ratio
+    ! Local
+
+    integer i,j,l,m,n
+    real(kind=real_kind) :: vor(4,4),div(4,4)
+    real(kind=real_kind) :: v1,v2,div1,div2,vor1,vor2,phi_x,phi_y
+
+    div=divergence_sphere(v,deriv,elem)
+    vor=vorticity_sphere(v,deriv,elem)
+
+    !if (var_coef) then
+    !   div = div*elem%variable_hyperviscosity(:,:)
+    !   vor = vor*elem%variable_hyperviscosity(:,:)
+    !end if
+    !if (present(nu_ratio)) div = nu_ratio*div
+
+    laplace = gradient_sphere_wk_testcov(div,deriv,elem) - &
+         curl_sphere_wk_testcov(vor,deriv,elem)
+
+    do n=1, 4
+       do m=1, 4
+          ! add in correction so we dont damp rigid rotation
+          laplace(m,n,1)=laplace(m,n,1) + 2*elem%spheremp(m,n)*v(m,n,1)*(rrearth**2)
+          laplace(m,n,2)=laplace(m,n,2) + 2*elem%spheremp(m,n)*v(m,n,2)*(rrearth**2)
+       enddo
+    enddo
+  end function my_laplace_sphere_wk_new
 
 
 
