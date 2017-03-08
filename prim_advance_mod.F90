@@ -1701,17 +1701,17 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_dpdiss_ave
   pointer(elem_derived_dpdiss_ave_ptr, elem_derived_dpdiss_ave)
 
-  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_dp3d_nt
-  pointer(elem_state_dp3d_nt_ptr, elem_state_dp3d_nt)
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_dp3d
+  pointer(elem_state_dp3d_ptr, elem_state_dp3d)
   
   real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_dpdiss_biharmonic
   pointer(elem_derived_dpdiss_biharmonic_ptr, elem_derived_dpdiss_biharmonic)
 
-  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_T_nt
-  pointer(elem_state_T_nt_ptr, elem_state_T_nt)
+  real (kind=real_kind), dimension(np,np,nlev) :: elem_state_T
+  pointer(elem_state_T_ptr, elem_state_T)
 
-  real (kind=real_kind), dimension(np,np,2,nlev) :: elem_state_v_nt
-  pointer(elem_state_v_nt_ptr, elem_state_v_nt)
+  real (kind=real_kind), dimension(np,np,2,nlev) :: elem_state_v
+  pointer(elem_state_v_ptr, elem_state_v)
  
   
   integer(kind=8), dimension(5,nets:nete) :: elem_array
@@ -1807,14 +1807,20 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
         call t_startf("hypervis_dp before bndry")
         do ie=nets,nete
            do k=1,nlev
-              elem(ie)%derived%dpdiss_ave(:,:,k)=elem(ie)%derived%dpdiss_ave(:,:,k)+&
-                   eta_ave_w*elem(ie)%state%dp3d(:,:,k,nt)/hypervis_subcycle
-              elem(ie)%derived%dpdiss_biharmonic(:,:,k)=elem(ie)%derived%dpdiss_biharmonic(:,:,k)+&
+              elem_derived_dpdiss_ave_ptr        = elem_array(1,ie)
+              elem_state_dp3d_ptr                = elem_array(2,ie)
+              elem_derived_dpdiss_biharmonic_ptr = elem_array(3,ie)
+              elem_state_T_ptr                   = elem_array(4,ie)
+              elem_state_v_ptr                   = elem_array(5,ie)
+
+              elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
+                   eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
+              elem_derived_dpdiss_biharmonic(:,:,k)=elem_derived_dpdiss_biharmonic(:,:,k)+&
                    eta_ave_w*dptens(:,:,k,ie)/hypervis_subcycle
               if (nu_top>0 .and. k<=3) then
-                 lap_t=laplace_sphere_wk(elem(ie)%state%T(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
-                 lap_dp=laplace_sphere_wk(elem(ie)%state%dp3d(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
-                 lap_v=vlaplace_sphere_wk(elem(ie)%state%v(:,:,:,k,nt),deriv,elem(ie),var_coef=.false.)
+                 lap_t=laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie),var_coef=.false.)
+                 lap_dp=laplace_sphere_wk(elem_state_dp3d(:,:,k),deriv,elem(ie),var_coef=.false.)
+                 lap_v=vlaplace_sphere_wk(elem_state_v(:,:,:,k),deriv,elem(ie),var_coef=.false.)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
