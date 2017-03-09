@@ -1725,13 +1725,19 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(2,2,np,np) :: elem_D
   pointer(elem_D_ptr, elem_D)
 
+  real (kind=real_kind), dimension(2,2,np,np) :: elem_metinv
+  pointer(elem_metinv_ptr, elem_metinv)
+
   real (kind=real_kind), dimension(np,np) :: deriv_dvv
   pointer(deriv_dvv_ptr, deriv_dvv)
 
   real (kind=real_kind), dimension(np,np) :: elem_mp
   pointer(elem_mp_ptr, elem_mp)
 
-  integer(kind=8), dimension(10,nets:nete) :: elem_array
+  real (kind=real_kind), dimension(np,np) :: elem_spheremp
+  pointer(elem_spheremp_ptr, elem_spheremp)
+
+  integer(kind=8), dimension(12,nets:nete) :: elem_array
 
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
@@ -1752,6 +1758,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
       elem_array(8,ie) = loc(elem(ie)%D)
       elem_array(9,ie) = loc(elem(ie)%Dinv)
       elem_array(10,ie)= loc(elem(ie)%mp)
+      elem_array(11,ie)= loc(elem(ie)%metinv)
+      elem_array(12,ie)= loc(elem(ie)%spheremp)
   enddo
   deriv_dvv_ptr = loc(deriv%dvv)
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
@@ -1772,6 +1780,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_D_ptr                         = elem_array(8,ie)
               elem_Dinv_ptr                      = elem_array(9,ie)
               elem_mp_ptr                        = elem_array(10,ie)  
+              elem_metinv_ptr                    = elem_array(11,ie)
+              elem_spheremp_ptr                  = elem_array(12,ie)
 
               elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
                    eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
@@ -1780,7 +1790,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               if (nu_top>0 .and. k<=3) then
                  lap_t=my_laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie))
                  lap_dp=my_laplace_sphere_wk2(elem_state_dp3d(:,:,k),deriv,elem(ie))
-                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),elem(ie),rrearth, elem_metdet, elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp)
+                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),elem(ie),rrearth, elem_metdet, &
+                 elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp,elem_metinv,elem_spheremp)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
@@ -1921,7 +1932,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end function my_laplace_sphere_wk
 
-  function my_laplace_sphere_wk_new(v,elem,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp) result(laplace)
+  function my_laplace_sphere_wk_new(v,elem,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp, elem_metinv, elem_spheremp) result(laplace)
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
@@ -1937,38 +1948,34 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     type (element_t)                 :: elem
     real(kind=real_kind) :: laplace(4,4,2)
     real(kind=real_kind) :: rrearth
-    real(kind=real_kind), dimension(4,4) :: elem_metdet, elem_rmetdet,deriv_dvv, elem_mp
-    real(kind=real_kind), dimension(2,2,4,4) :: elem_D, elem_Dinv
+    real(kind=real_kind), dimension(4,4) :: elem_metdet, elem_rmetdet,deriv_dvv, elem_mp, elem_spheremp
+    real(kind=real_kind), dimension(2,2,4,4) :: elem_D, elem_Dinv, elem_metinv
     ! Local
 
     integer i,j,l,m,n
     real(kind=real_kind) :: vor(4,4),div(4,4)
     real(kind=real_kind) :: v1,v2,div1,div2,vor1,vor2,phi_x,phi_y
 
-    !div=divergence_sphere(v,deriv,elem)
-    !vor=vorticity_sphere(v,deriv,elem)
 
      call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
      call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),rrearth,vor)
 
-    laplace = my_gradient_sphere_wk_testcov(div,deriv_dvv,elem, rrearth) - &
-         my_curl_sphere_wk_testcov(vor,deriv_dvv,elem, rrearth, elem_mp, elem_D)
+    laplace = my_gradient_sphere_wk_testcov(div,deriv_dvv,elem, rrearth,elem_metdet, elem_D, elem_mp, elem_metinv) - &
+         my_curl_sphere_wk_testcov(vor,deriv_dvv, rrearth, elem_mp, elem_D)
 
     do n=1, 4
        do m=1, 4
           ! add in correction so we dont damp rigid rotation
-          laplace(m,n,1)=laplace(m,n,1) + 2*elem%spheremp(m,n)*v(m,n,1)*(rrearth**2)
-          laplace(m,n,2)=laplace(m,n,2) + 2*elem%spheremp(m,n)*v(m,n,2)*(rrearth**2)
+          laplace(m,n,1)=laplace(m,n,1) + 2*elem_spheremp(m,n)*v(m,n,1)*(rrearth**2)
+          laplace(m,n,2)=laplace(m,n,2) + 2*elem_spheremp(m,n)*v(m,n,2)*(rrearth**2)
        enddo
     enddo
   end function my_laplace_sphere_wk_new
 
   
-  function my_curl_sphere_wk_testcov(s,dvv,elem,rrearth, elem_mp, elem_D) result(ds)
+  function my_curl_sphere_wk_testcov(s,dvv,rrearth, elem_mp, elem_D) result(ds)
     !type (derivative_t)              :: deriv
-    use element_mod, only: element_t
     real(kind=real_kind)             :: dvv(4,4)
-    type (element_t)                 :: elem
     real(kind=real_kind), intent(in) :: s(4,4)
 
     real(kind=real_kind) :: ds(4,4,2)
@@ -1983,21 +1990,21 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     do n=1,4
        do m=1,4
           do j=1,4
-             dscontra(m,n,1)=dscontra(m,n,1)-(elem%mp(m,j)*s(m,j)*Dvv(n,j) )*rrearth
-             dscontra(m,n,2)=dscontra(m,n,2)+(elem%mp(j,n)*s(j,n)*Dvv(m,j) )*rrearth
+             dscontra(m,n,1)=dscontra(m,n,1)-(elem_mp(m,j)*s(m,j)*Dvv(n,j) )*rrearth
+             dscontra(m,n,2)=dscontra(m,n,2)+(elem_mp(j,n)*s(j,n)*Dvv(m,j) )*rrearth
           enddo
        enddo
     enddo
 
     do j=1,4
        do i=1,4
-          ds(i,j,1)=(elem%D(1,1,i,j)*dscontra(i,j,1) + elem%D(1,2,i,j)*dscontra(i,j,2))
-          ds(i,j,2)=(elem%D(2,1,i,j)*dscontra(i,j,1) + elem%D(2,2,i,j)*dscontra(i,j,2))
+          ds(i,j,1)=(elem_D(1,1,i,j)*dscontra(i,j,1) + elem_D(1,2,i,j)*dscontra(i,j,2))
+          ds(i,j,2)=(elem_D(2,1,i,j)*dscontra(i,j,1) + elem_D(2,2,i,j)*dscontra(i,j,2))
        enddo
     enddo
     end function my_curl_sphere_wk_testcov
 
-  function my_gradient_sphere_wk_testcov(s,dvv,elem,rrearth) result(ds)
+  function my_gradient_sphere_wk_testcov(s,dvv,elem,rrearth, elem_metdet, elem_D, elem_mp, elem_metinv) result(ds)
     !type (derivative_t)              :: deriv
    use element_mod, only: element_t
     real(kind=real_kind) :: dvv(4,4)
@@ -2010,27 +2017,29 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     integer i,j,l,m,n
     real(kind=real_kind) ::  dscontra(4,4,2)
 
-
+    real(kind=real_kind), dimension(4,4) :: elem_mp,  elem_metdet
+    real(kind=real_kind), dimension(2,2,4,4) :: elem_D, elem_metinv
+    
     dscontra=0
     do n=1,4
        do m=1,4
           do j=1,4
              dscontra(m,n,1)=dscontra(m,n,1)-(&
-                  (elem%mp(j,n)*elem%metinv(1,1,m,n)*elem%metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
-                  (elem%mp(m,j)*elem%metinv(2,1,m,n)*elem%metdet(m,n)*s(m,j)*Dvv(n,j) ) &
+                  (elem_mp(j,n)*elem_metinv(1,1,m,n)*elem_metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
+                  (elem_mp(m,j)*elem_metinv(2,1,m,n)*elem_metdet(m,n)*s(m,j)*Dvv(n,j) ) &
                   ) *rrearth
 
              dscontra(m,n,2)=dscontra(m,n,2)-(&
-                  (elem%mp(j,n)*elem%metinv(1,2,m,n)*elem%metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
-                  (elem%mp(m,j)*elem%metinv(2,2,m,n)*elem%metdet(m,n)*s(m,j)*Dvv(n,j) ) &
+                  (elem_mp(j,n)*elem_metinv(1,2,m,n)*elem_metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
+                  (elem_mp(m,j)*elem_metinv(2,2,m,n)*elem_metdet(m,n)*s(m,j)*Dvv(n,j) ) &
                   ) *rrearth
           enddo
        enddo
     enddo
     do j=1,4
        do i=1,4
-          ds(i,j,1)=(elem%D(1,1,i,j)*dscontra(i,j,1) + elem%D(1,2,i,j)*dscontra(i,j,2))
-          ds(i,j,2)=(elem%D(2,1,i,j)*dscontra(i,j,1) + elem%D(2,2,i,j)*dscontra(i,j,2))
+          ds(i,j,1)=(elem_D(1,1,i,j)*dscontra(i,j,1) + elem_D(1,2,i,j)*dscontra(i,j,2))
+          ds(i,j,2)=(elem_D(2,1,i,j)*dscontra(i,j,1) + elem_D(2,2,i,j)*dscontra(i,j,2))
        enddo
     enddo
 
