@@ -1768,6 +1768,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
         ! conghui: this may be optimized
         call t_startf("hypervis_dp before bndry")
+        !$ACC parallel loop local(lap_v, lap_t, lap_dp) copyin(elem_array, deriv_dvv) annotate(entire(deriv_dvv)) 
         do ie=nets,nete
            do k=1,nlev
               elem_derived_dpdiss_ave_ptr        = elem_array(1,ie)
@@ -1782,7 +1783,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_mp_ptr                        = elem_array(10,ie)  
               elem_metinv_ptr                    = elem_array(11,ie)
               elem_spheremp_ptr                  = elem_array(12,ie)
-
+              !$ACC data copy(elem_derived_dpdiss_ave(*,*,k)) copyout(vtens(*,*,*,k,ie), ttens(*,*,k,ie), dptens(*,*,k,ie), elem_derived_dpdiss_biharmonic(*,*,k)) copyin(elem_state_dp3d(*,*,k), elem_state_T(*,*,k), elem_state_v(*,*,*,k), elem_metdet, elem_rmetdet, elem_D, elem_Dinv, elem_mp, elem_metinv, elem_spheremp)
               elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
                    eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
               elem_derived_dpdiss_biharmonic(:,:,k)=elem_derived_dpdiss_biharmonic(:,:,k)+&
@@ -1817,8 +1818,12 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                     vtens(i,j,2,k,ie)=vtens_tmp
                  enddo
               enddo
+              !$ACC end data
            enddo
         enddo
+        !$ACC END parallel loop
+        call t_stopf("hypervis_dp before bndry")
+        call t_startf("hypervis_dp before bndry 2")
         do ie=nets,nete
 
            kptr=0
@@ -1829,7 +1834,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
            call edgeVpack(edge3,dptens(:,:,:,ie),nlev,kptr,elem(ie)%desc)
         enddo
 
-        call t_stopf("hypervis_dp before bndry")
+        call t_stopf("hypervis_dp before bndry 2")
 
         call bndry_exchangeV(hybrid,edge3)
 
