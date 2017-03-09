@@ -1663,7 +1663,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   use edge_mod, only : EdgeBuffer_t, edgevpack, edgevunpack
   use bndry_mod, only : bndry_exchangev
   use viscosity_mod, only : biharmonic_wk_dp3d
-  use physical_constants, only: Cp
+  use physical_constants, only: Cp, rrearth
 !  use time_mod, only : TimeLevel_t
   implicit none
 
@@ -1820,7 +1820,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               if (nu_top>0 .and. k<=3) then
                  lap_t=my_laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie))
                  lap_dp=my_laplace_sphere_wk2(elem_state_dp3d(:,:,k),deriv,elem(ie))
-                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),var_coef=.false.)
+                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),rrearth)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
@@ -1962,7 +1962,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end function my_laplace_sphere_wk
 
-  function my_laplace_sphere_wk_new(v,deriv,elem,var_coef) result(laplace)
+  function my_laplace_sphere_wk_new(v,deriv,elem,rrearth) result(laplace)
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
@@ -1973,12 +1973,11 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 !                 = grad_wk(div) - curl_wk(vor)               
     use derivative_mod, only : derivative_t, divergence_sphere, gradient_sphere, vorticity_sphere, gradient_sphere_wk_testcov, curl_sphere_wk_testcov
     use element_mod, only: element_t
-    use physical_constants, only: rrearth
     real(kind=real_kind), intent(in) :: v(4,4,2) 
-    logical :: var_coef
     type (derivative_t)              :: deriv
     type (element_t)                 :: elem
     real(kind=real_kind) :: laplace(4,4,2)
+    real(kind=real_kind) :: rrearth
     ! Local
 
     integer i,j,l,m,n
@@ -1991,8 +1990,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
        !call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
        !call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vor)
 
-    laplace = gradient_sphere_wk_testcov(div,deriv,elem) - &
-         curl_sphere_wk_testcov(vor,deriv,elem)
+    laplace = my_gradient_sphere_wk_testcov(div,deriv%dvv,elem, rrearth) - &
+         my_curl_sphere_wk_testcov(vor,deriv%dvv,elem, rrearth)
 
     do n=1, 4
        do m=1, 4
