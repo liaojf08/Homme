@@ -1788,8 +1788,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_derived_dpdiss_biharmonic(:,:,k)=elem_derived_dpdiss_biharmonic(:,:,k)+&
                    eta_ave_w*dptens(:,:,k,ie)/hypervis_subcycle
               if (nu_top>0 .and. k<=3) then
-                 lap_t=my_laplace_sphere_wk2(elem_state_T(:,:,k),deriv_dvv, elem_dinv, elem_spheremp, rrearth)
-                 lap_dp=my_laplace_sphere_wk(elem_state_dp3d(:,:,k),deriv,elem(ie))
+                 lap_t=my_laplace_sphere_wk(elem_state_T(:,:,k),deriv_dvv, elem_dinv, elem_spheremp, rrearth)
+                 lap_dp=my_laplace_sphere_wk(elem_state_dp3d(:,:,k),deriv_dvv,elem_dinv,elem_spheremp, rrearth)
                  lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),rrearth, elem_metdet, &
                  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp,elem_metinv,elem_spheremp)
               endif
@@ -1882,15 +1882,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end subroutine advance_hypervis_dp
 
-  function my_laplace_sphere_wk2(s,deriv_dvv,elem_dinv, elem_spheremp, rrearth) result(laplace)
+  function my_laplace_sphere_wk(s,deriv_dvv,elem_dinv, elem_spheremp, rrearth) result(laplace)
 
-!
-!   input:  s = scalar
-!   ouput:  -< grad(PHI), grad(s) >   = weak divergence of grad(s)
-!     note: for this form of the operator, grad(s) does not need to be made C0
-!            
-    use derivative_mod, only : derivative_t, divergence_sphere_wk, gradient_sphere
-    use element_mod, only: element_t
     real(kind=real_kind), intent(in) :: s(4,4), deriv_dvv(4,4), elem_dinv(2,2,4,4), elem_spheremp(4,4), rrearth
     real(kind=real_kind)             :: laplace(4,4)
     integer i,j
@@ -1952,30 +1945,6 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     
   end function divergence_sphere_wk
   
-  function my_laplace_sphere_wk(s,deriv,elem) result(laplace)
-
-!
-!   input:  s = scalar
-!   ouput:  -< grad(PHI), grad(s) >   = weak divergence of grad(s)
-!     note: for this form of the operator, grad(s) does not need to be made C0
-!            
-    use derivative_mod, only : derivative_t, divergence_sphere_wk, gradient_sphere
-    use element_mod, only: element_t
-    real(kind=real_kind), intent(in) :: s(4,4) 
-    type (derivative_t),intent(in)              :: deriv
-
-    type (element_t),intent(in)                 :: elem
-    real(kind=real_kind)             :: laplace(4,4)
-    integer i,j
-
-    ! Local
-    real(kind=real_kind) :: grads(4,4,2), oldgrads(4,4,2)
-
-    grads=gradient_sphere(s,deriv,elem%Dinv)
- 
-    laplace=divergence_sphere_wk(grads,deriv,elem)
-
-  end function my_laplace_sphere_wk
 
   function my_laplace_sphere_wk_new(v,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp, elem_metinv, elem_spheremp) result(laplace)
 !
