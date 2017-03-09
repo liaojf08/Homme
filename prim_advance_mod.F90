@@ -1962,7 +1962,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end function my_laplace_sphere_wk
 
-  function my_laplace_sphere_wk_new(v,deriv,elem,var_coef,nu_ratio) result(laplace)
+  function my_laplace_sphere_wk_new(v,deriv,elem,var_coef) result(laplace)
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
@@ -1979,7 +1979,6 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     type (derivative_t)              :: deriv
     type (element_t)                 :: elem
     real(kind=real_kind) :: laplace(4,4,2)
-    real(kind=real_kind), optional :: nu_ratio
     ! Local
 
     integer i,j,l,m,n
@@ -1989,11 +1988,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     div=divergence_sphere(v,deriv,elem)
     vor=vorticity_sphere(v,deriv,elem)
 
-    !if (var_coef) then
-    !   div = div*elem%variable_hyperviscosity(:,:)
-    !   vor = vor*elem%variable_hyperviscosity(:,:)
-    !end if
-    !if (present(nu_ratio)) div = nu_ratio*div
+       !call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
+       !call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vor)
 
     laplace = gradient_sphere_wk_testcov(div,deriv,elem) - &
          curl_sphere_wk_testcov(vor,deriv,elem)
@@ -2007,6 +2003,76 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     enddo
   end function my_laplace_sphere_wk_new
 
+  
+  function my_curl_sphere_wk_testcov(s,dvv,elem,rrearth) result(ds)
+    !type (derivative_t)              :: deriv
+    use element_mod, only: element_t
+    real(kind=real_kind)             :: dvv(4,4)
+    type (element_t)                 :: elem
+    real(kind=real_kind), intent(in) :: s(4,4)
+
+    real(kind=real_kind) :: ds(4,4,2)
+    real(kind=real_kind) :: rrearth
+
+    integer i,j,l,m,n
+    real(kind=real_kind) ::  dscontra(4,4,2)
+
+    dscontra=0
+    do n=1,4
+       do m=1,4
+          do j=1,4
+             dscontra(m,n,1)=dscontra(m,n,1)-(elem%mp(m,j)*s(m,j)*Dvv(n,j) )*rrearth
+             dscontra(m,n,2)=dscontra(m,n,2)+(elem%mp(j,n)*s(j,n)*Dvv(m,j) )*rrearth
+          enddo
+       enddo
+    enddo
+
+    do j=1,4
+       do i=1,4
+          ds(i,j,1)=(elem%D(1,1,i,j)*dscontra(i,j,1) + elem%D(1,2,i,j)*dscontra(i,j,2))
+          ds(i,j,2)=(elem%D(2,1,i,j)*dscontra(i,j,1) + elem%D(2,2,i,j)*dscontra(i,j,2))
+       enddo
+    enddo
+    end function my_curl_sphere_wk_testcov
+
+  function my_gradient_sphere_wk_testcov(s,dvv,elem,rrearth) result(ds)
+    !type (derivative_t)              :: deriv
+   use element_mod, only: element_t
+    real(kind=real_kind) :: dvv(4,4)
+    type (element_t)                 :: elem
+    real(kind=real_kind), intent(in) :: s(4,4)
+
+    real(kind=real_kind) :: ds(4,4,2)
+    real(kind=real_kind) :: rrearth
+
+    integer i,j,l,m,n
+    real(kind=real_kind) ::  dscontra(4,4,2)
+
+
+    dscontra=0
+    do n=1,4
+       do m=1,4
+          do j=1,4
+             dscontra(m,n,1)=dscontra(m,n,1)-(&
+                  (elem%mp(j,n)*elem%metinv(1,1,m,n)*elem%metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
+                  (elem%mp(m,j)*elem%metinv(2,1,m,n)*elem%metdet(m,n)*s(m,j)*Dvv(n,j) ) &
+                  ) *rrearth
+
+             dscontra(m,n,2)=dscontra(m,n,2)-(&
+                  (elem%mp(j,n)*elem%metinv(1,2,m,n)*elem%metdet(m,n)*s(j,n)*Dvv(m,j) ) +&
+                  (elem%mp(m,j)*elem%metinv(2,2,m,n)*elem%metdet(m,n)*s(m,j)*Dvv(n,j) ) &
+                  ) *rrearth
+          enddo
+       enddo
+    enddo
+    do j=1,4
+       do i=1,4
+          ds(i,j,1)=(elem%D(1,1,i,j)*dscontra(i,j,1) + elem%D(1,2,i,j)*dscontra(i,j,2))
+          ds(i,j,2)=(elem%D(2,1,i,j)*dscontra(i,j,1) + elem%D(2,2,i,j)*dscontra(i,j,2))
+       enddo
+    enddo
+
+    end function my_gradient_sphere_wk_testcov
 
 
   subroutine advance_hypervis_lf(edge3,elem,hvcoord,hybrid,deriv,nm1,n0,nt,nets,nete,dt2)
