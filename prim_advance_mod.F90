@@ -1713,8 +1713,22 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(np,np,2,nlev) :: elem_state_v
   pointer(elem_state_v_ptr, elem_state_v)
  
-  
-  integer(kind=8), dimension(5,nets:nete) :: elem_array
+  real (kind=real_kind), dimension(np,np) :: elem_metdet
+  pointer(elem_metdet_ptr, elem_metdet)
+ 
+  real (kind=real_kind), dimension(np,np) :: elem_rmetdet
+  pointer(elem_rmetdet_ptr, elem_rmetdet)
+
+  real (kind=real_kind), dimension(2,2,np,np) :: elem_Dinv
+  pointer(elem_Dinv_ptr, elem_Dinv)
+
+  real (kind=real_kind), dimension(2,2,np,np) :: elem_D
+  pointer(elem_D_ptr, elem_D)
+
+  real (kind=real_kind), dimension(np,np) :: deriv_dvv
+  pointer(deriv_dvv_ptr, deriv_dvv)
+
+  integer(kind=8), dimension(9,nets:nete) :: elem_array
 
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
@@ -1722,83 +1736,20 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
 
   dt=dt2/hypervis_subcycle
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  !  regular viscosity
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  if (hypervis_order == 1) then
-     if (nu_p>0) call abortmp( 'ERROR: hypervis_order == 1 not coded for nu_p>0')
-     do ic=1,hypervis_subcycle
-        do ie=nets,nete
-
-           do k=1,nlev
-              lap_t=laplace_sphere_wk(elem(ie)%state%T(:,:,k,nt),deriv,elem(ie),var_coef=.false.)
-              lap_v=vlaplace_sphere_wk(elem(ie)%state%v(:,:,:,k,nt),deriv,elem(ie),var_coef=.false.)
-              do j=1,np
-                 do i=1,np
-                    elem(ie)%state%T(i,j,k,nt)=elem(ie)%state%T(i,j,k,nt)*elem(ie)%spheremp(i,j)  +  dt*nu_s*lap_t(i,j)
-                    elem(ie)%state%v(i,j,1,k,nt)=elem(ie)%state%v(i,j,1,k,nt)*elem(ie)%spheremp(i,j) + dt*nu*lap_v(i,j,1)
-                    elem(ie)%state%v(i,j,2,k,nt)=elem(ie)%state%v(i,j,2,k,nt)*elem(ie)%spheremp(i,j) + dt*nu*lap_v(i,j,2)
-                 enddo
-              enddo
-           enddo
-
-           kptr=0
-           call edgeVpack(edge3, elem(ie)%state%T(:,:,:,nt),nlev,kptr,elem(ie)%desc)
-           kptr=nlev
-           call edgeVpack(edge3,elem(ie)%state%v(:,:,:,:,nt),2*nlev,kptr,elem(ie)%desc)
-        enddo
-
-        call bndry_exchangeV(hybrid,edge3)
-
-        do ie=nets,nete
-
-           kptr=0
-           call edgeVunpack(edge3, elem(ie)%state%T(:,:,:,nt), nlev, kptr, elem(ie)%desc)
-           kptr=nlev
-           call edgeVunpack(edge3, elem(ie)%state%v(:,:,:,:,nt), 2*nlev, kptr, elem(ie)%desc)
-
-           ! apply inverse mass matrix
-#if (defined ELEMENT_OPENMP)
-!$omp parallel do private(k,i,j)
-#endif
-           do k=1,nlev
-              do j=1,np
-                 do i=1,np
-                    elem(ie)%state%T(i,j,k,nt)=elem(ie)%rspheremp(i,j)*elem(ie)%state%T(i,j,k,nt)
-                    elem(ie)%state%v(i,j,1,k,nt)=elem(ie)%rspheremp(i,j)*elem(ie)%state%v(i,j,1,k,nt)
-                    elem(ie)%state%v(i,j,2,k,nt)=elem(ie)%rspheremp(i,j)*elem(ie)%state%v(i,j,2,k,nt)
-                 enddo
-              enddo
-           enddo
-        enddo
-#ifdef DEBUGOMP
-#if (! defined ELEMENT_OPENMP)
-!$OMP BARRIER
-#endif
-#endif
-     enddo  ! subcycle
-  endif
 
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  !  hyper viscosity
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! nu_p=0:
-!   scale T dissipaton by dp  (conserve IE, dissipate T^2)
-! nu_p>0
-!   dont scale:  T equation IE dissipation matches (to truncation error)
-!                IE dissipation from continuity equation
-!                (1 deg: to about 0.1 W/m^2)
-!
   do ie = nets,nete
       elem_array(1,ie) = loc(elem(ie)%derived%dpdiss_ave)
       elem_array(2,ie) = loc(elem(ie)%state%dp3d(:,:,:,nt))
       elem_array(3,ie) = loc(elem(ie)%derived%dpdiss_biharmonic)
       elem_array(4,ie) = loc(elem(ie)%state%T(:,:,:,nt))
       elem_array(5,ie) = loc(elem(ie)%state%v(:,:,:,:,nt))
+      elem_array(6,ie) = loc(elem(ie)%metdet)
+      elem_array(7,ie) = loc(elem(ie)%rmetdet)
+      elem_array(8,ie) = loc(elem(ie)%D)
+      elem_array(9,ie) = loc(elem(ie)%Dinv)
   enddo
-
-  if (hypervis_order == 2) then
+  deriv_dvv_ptr = loc(deriv%dvv)
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
      do ic=1,hypervis_subcycle
         call biharmonic_wk_dp3d(elem,dptens,ttens,vtens,deriv,edge3,hybrid,nt,nets,nete,nu_ratio)
@@ -1812,6 +1763,10 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_derived_dpdiss_biharmonic_ptr = elem_array(3,ie)
               elem_state_T_ptr                   = elem_array(4,ie)
               elem_state_v_ptr                   = elem_array(5,ie)
+              elem_metdet_ptr                    = elem_array(6,ie)
+              elem_rmetdet_ptr                   = elem_array(7,ie)
+              elem_D_ptr                         = elem_array(8,ie)
+              elem_Dinv_ptr                      = elem_array(9,ie)
 
               elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
                    eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
@@ -1820,7 +1775,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               if (nu_top>0 .and. k<=3) then
                  lap_t=my_laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie))
                  lap_dp=my_laplace_sphere_wk2(elem_state_dp3d(:,:,k),deriv,elem(ie))
-                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),rrearth)
+                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),rrearth, elem_metdet, elem_rmetdet, elem_D, elem_Dinv, deriv_dvv)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
@@ -1906,7 +1861,6 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
          enddo ! ie
          call t_stopf("hypervis_dp after bndry")
        enddo ! cycle
-  endif
 
   call t_stopf('advance_hypervis_dp')
 
@@ -1962,7 +1916,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end function my_laplace_sphere_wk
 
-  function my_laplace_sphere_wk_new(v,deriv,elem,rrearth) result(laplace)
+  function my_laplace_sphere_wk_new(v,deriv,elem,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv) result(laplace)
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
@@ -1978,17 +1932,19 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     type (element_t)                 :: elem
     real(kind=real_kind) :: laplace(4,4,2)
     real(kind=real_kind) :: rrearth
+    real(kind=real_kind), dimension(4,4) :: elem_metdet, elem_rmetdet,deriv_dvv
+    real(kind=real_kind), dimension(2,2,4,4) :: elem_D, elem_Dinv
     ! Local
 
     integer i,j,l,m,n
     real(kind=real_kind) :: vor(4,4),div(4,4)
     real(kind=real_kind) :: v1,v2,div1,div2,vor1,vor2,phi_x,phi_y
 
-    div=divergence_sphere(v,deriv,elem)
-    vor=vorticity_sphere(v,deriv,elem)
+    !div=divergence_sphere(v,deriv,elem)
+    !vor=vorticity_sphere(v,deriv,elem)
 
-       !call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
-       !call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),my_rrearth,vor)
+     call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
+     call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),rrearth,vor)
 
     laplace = my_gradient_sphere_wk_testcov(div,deriv%dvv,elem, rrearth) - &
          my_curl_sphere_wk_testcov(vor,deriv%dvv,elem, rrearth)
