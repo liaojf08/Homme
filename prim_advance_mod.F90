@@ -1728,7 +1728,10 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(np,np) :: deriv_dvv
   pointer(deriv_dvv_ptr, deriv_dvv)
 
-  integer(kind=8), dimension(9,nets:nete) :: elem_array
+  real (kind=real_kind), dimension(np,np) :: elem_mp
+  pointer(elem_mp_ptr, elem_mp)
+
+  integer(kind=8), dimension(10,nets:nete) :: elem_array
 
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
@@ -1748,6 +1751,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
       elem_array(7,ie) = loc(elem(ie)%rmetdet)
       elem_array(8,ie) = loc(elem(ie)%D)
       elem_array(9,ie) = loc(elem(ie)%Dinv)
+      elem_array(10,ie)= loc(elem(ie)%mp)
   enddo
   deriv_dvv_ptr = loc(deriv%dvv)
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
@@ -1767,6 +1771,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_rmetdet_ptr                   = elem_array(7,ie)
               elem_D_ptr                         = elem_array(8,ie)
               elem_Dinv_ptr                      = elem_array(9,ie)
+              elem_mp_ptr                        = elem_array(10,ie)  
 
               elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
                    eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
@@ -1775,7 +1780,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               if (nu_top>0 .and. k<=3) then
                  lap_t=my_laplace_sphere_wk(elem_state_T(:,:,k),deriv,elem(ie))
                  lap_dp=my_laplace_sphere_wk2(elem_state_dp3d(:,:,k),deriv,elem(ie))
-                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),deriv,elem(ie),rrearth, elem_metdet, elem_rmetdet, elem_D, elem_Dinv, deriv_dvv)
+                 lap_v=my_laplace_sphere_wk_new(elem_state_v(:,:,:,k),elem(ie),rrearth, elem_metdet, elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp)
               endif
               nu_scale_top = 1
               if (k==1) nu_scale_top=4
@@ -1916,7 +1921,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   end function my_laplace_sphere_wk
 
-  function my_laplace_sphere_wk_new(v,deriv,elem,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv) result(laplace)
+  function my_laplace_sphere_wk_new(v,elem,rrearth, elem_metdet,  elem_rmetdet, elem_D, elem_Dinv, deriv_dvv, elem_mp) result(laplace)
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
@@ -1928,11 +1933,11 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     use derivative_mod, only : derivative_t, divergence_sphere, gradient_sphere, vorticity_sphere, gradient_sphere_wk_testcov, curl_sphere_wk_testcov
     use element_mod, only: element_t
     real(kind=real_kind), intent(in) :: v(4,4,2) 
-    type (derivative_t)              :: deriv
+    !type (derivative_t)              :: deriv
     type (element_t)                 :: elem
     real(kind=real_kind) :: laplace(4,4,2)
     real(kind=real_kind) :: rrearth
-    real(kind=real_kind), dimension(4,4) :: elem_metdet, elem_rmetdet,deriv_dvv
+    real(kind=real_kind), dimension(4,4) :: elem_metdet, elem_rmetdet,deriv_dvv, elem_mp
     real(kind=real_kind), dimension(2,2,4,4) :: elem_D, elem_Dinv
     ! Local
 
@@ -1946,8 +1951,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
      call my_divergence_sphere(v,deriv_Dvv(:,:),elem_metdet(:,:),elem_rmetdet(:,:),elem_Dinv(:,:,:,:),rrearth, div)
      call my_vorticity_sphere(v,deriv_Dvv(:,:),elem_D(:,:,:,:), elem_rmetdet(:,:),rrearth,vor)
 
-    laplace = my_gradient_sphere_wk_testcov(div,deriv%dvv,elem, rrearth) - &
-         my_curl_sphere_wk_testcov(vor,deriv%dvv,elem, rrearth)
+    laplace = my_gradient_sphere_wk_testcov(div,deriv_dvv,elem, rrearth) - &
+         my_curl_sphere_wk_testcov(vor,deriv_dvv,elem, rrearth, elem_mp, elem_D)
 
     do n=1, 4
        do m=1, 4
@@ -1959,7 +1964,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   end function my_laplace_sphere_wk_new
 
   
-  function my_curl_sphere_wk_testcov(s,dvv,elem,rrearth) result(ds)
+  function my_curl_sphere_wk_testcov(s,dvv,elem,rrearth, elem_mp, elem_D) result(ds)
     !type (derivative_t)              :: deriv
     use element_mod, only: element_t
     real(kind=real_kind)             :: dvv(4,4)
@@ -1972,6 +1977,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     integer i,j,l,m,n
     real(kind=real_kind) ::  dscontra(4,4,2)
 
+    real(kind=real_kind), dimension(4,4) :: elem_mp
+    real(kind=real_kind), dimension(2,2,4,4) :: elem_D
     dscontra=0
     do n=1,4
        do m=1,4
