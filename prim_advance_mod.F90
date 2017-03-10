@@ -2247,8 +2247,45 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               !$ACC end data
         enddo
         !$ACC end parallel loop
+        
+        !$ACC parallel loop copyin(pack_buf_array, pack_elem_array) copy(dptens)
+        do ie=nets, nete
 
-        do ie=nets,nete
+            elem_desc_getmapP_ptr         = pack_elem_array(3,ie)
+            edge_buf_in_1_ptr = pack_buf_array(1,4,ie)
+            edge_buf_in_2_ptr = pack_buf_array(2,4,ie)
+            edge_buf_in_3_ptr = pack_buf_array(3,4,ie)
+            edge_buf_in_4_ptr = pack_buf_array(4,4,ie)
+            edge_buf_5_ptr  = pack_buf_array(5,4,ie)
+            edge_buf_6_ptr  = pack_buf_array(6,4,ie)
+            edge_buf_7_ptr  = pack_buf_array(7,4,ie)
+            edge_buf_8_ptr  = pack_buf_array(8,4,ie)
+            edge_buf_is_1_ptr = pack_buf_array(9,4,ie)
+            edge_buf_is_2_ptr = pack_buf_array(10,4,ie)
+            edge_buf_is_3_ptr = pack_buf_array(11,4,ie)
+            edge_buf_is_4_ptr = pack_buf_array(12,4,ie)
+            edge_buf_ie_1_ptr = pack_buf_array(13,4,ie)
+            edge_buf_ie_2_ptr = pack_buf_array(14,4,ie)
+            edge_buf_ie_3_ptr = pack_buf_array(15,4,ie)
+            edge_buf_ie_4_ptr = pack_buf_array(16,4,ie)
+            edge_buf_iw_1_ptr = pack_buf_array(17,4,ie)
+            edge_buf_iw_2_ptr = pack_buf_array(18,4,ie)
+            edge_buf_iw_3_ptr = pack_buf_array(19,4,ie)
+            edge_buf_iw_4_ptr = pack_buf_array(20,4,ie)
+           !!$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+           !$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+            call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              dptens(:,:,:,ie), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC end data
+        enddo
+        !$ACC end parallel loop
+
+        !do ie=nets,nete
 
         
            !kptr=0
@@ -2256,8 +2293,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
            !kptr=nlev
            !call edgeVunpack(edge3, vtens(:,:,:,:,ie), 2*nlev, kptr, elem(ie)%desc)
            kptr=3*nlev
-           call edgeVunpack(edge3, dptens(:,:,:,ie), nlev, kptr, elem(ie)%desc)
-        enddo
+           !call edgeVunpack(edge3, dptens(:,:,:,ie), nlev, kptr, elem(ie)%desc)
+        !enddo
         call t_stopf("hypervis_dp after bndry")
         call t_startf("hypervis_dp after bndry2")
         !$ACC parallel loop collapse(2) copyin(elem_array)
