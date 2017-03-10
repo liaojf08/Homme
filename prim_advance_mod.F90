@@ -1737,7 +1737,10 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   real (kind=real_kind), dimension(np,np) :: elem_spheremp
   pointer(elem_spheremp_ptr, elem_spheremp)
 
-  integer(kind=8), dimension(12,nets:nete) :: elem_array
+  real (kind=real_kind), dimension(np,np) :: elem_rspheremp
+  pointer(elem_rspheremp_ptr, elem_rspheremp)
+
+  integer(kind=8), dimension(13,nets:nete) :: elem_array
 
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
@@ -1746,6 +1749,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   dt=dt2/hypervis_subcycle
 
+
+  call t_startf('hypervis_dp loc')
 
   do ie = nets,nete
       elem_array(1,ie) = loc(elem(ie)%derived%dpdiss_ave)
@@ -1760,7 +1765,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
       elem_array(10,ie)= loc(elem(ie)%mp)
       elem_array(11,ie)= loc(elem(ie)%metinv)
       elem_array(12,ie)= loc(elem(ie)%spheremp)
+      elem_array(13,ie)= loc(elem(ie)%rspheremp)
   enddo
+  call t_stopf('hypervis_dp loc')
   deriv_dvv_ptr = loc(deriv%dvv)
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
      do ic=1,hypervis_subcycle
@@ -1768,7 +1775,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
         ! conghui: this may be optimized
         call t_startf("hypervis_dp before bndry")
-        !$ACC parallel loop local(lap_v, lap_t, lap_dp) copyin(elem_array, deriv_dvv) annotate(entire(deriv_dvv)) 
+        !$ACC parallel loop collapse(2) local(lap_v, lap_t, lap_dp) copyin(elem_array, deriv_dvv) annotate(entire(deriv_dvv)) 
         do ie=nets,nete
            do k=1,nlev
               elem_derived_dpdiss_ave_ptr        = elem_array(1,ie)
@@ -1802,20 +1809,16 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                  do i=1,np
                     ! biharmonic terms need a negative sign:
                     if (nu_top>0 .and. k<=3) then
-                       utens_tmp=(-nu*vtens(i,j,1,k,ie) + nu_scale_top*nu_top*lap_v(i,j,1))
-                       vtens_tmp=(-nu*vtens(i,j,2,k,ie) + nu_scale_top*nu_top*lap_v(i,j,2))
-                       ttens_tmp=(-nu_s*ttens(i,j,k,ie) + nu_scale_top*nu_top*lap_t(i,j) )
-                       dptens_tmp=(-nu_p*dptens(i,j,k,ie) + nu_scale_top*nu_top*lap_dp(i,j) )
+                       vtens(i,j,1,k,ie)=(-nu*vtens(i,j,1,k,ie) + nu_scale_top*nu_top*lap_v(i,j,1))
+                       vtens(i,j,2,k,ie)=(-nu*vtens(i,j,2,k,ie) + nu_scale_top*nu_top*lap_v(i,j,2))
+                       ttens(i,j,k,ie)  =(-nu_s*ttens(i,j,k,ie) + nu_scale_top*nu_top*lap_t(i,j) )
+                       dptens(i,j,k,ie) =(-nu_p*dptens(i,j,k,ie) + nu_scale_top*nu_top*lap_dp(i,j) )
                     else
-                       utens_tmp=-nu*vtens(i,j,1,k,ie)
-                       vtens_tmp=-nu*vtens(i,j,2,k,ie)
-                       ttens_tmp=-nu_s*ttens(i,j,k,ie)
-                       dptens_tmp=-nu_p*dptens(i,j,k,ie)
+                       vtens(i,j,1,k,ie) =-nu*vtens(i,j,1,k,ie)
+                       vtens(i,j,2,k,ie) =-nu*vtens(i,j,2,k,ie)
+                       ttens(i,j,k,ie)   =-nu_s*ttens(i,j,k,ie)
+                       dptens(i,j,k,ie)  =-nu_p*dptens(i,j,k,ie)
                     endif
-                    ttens(i,j,k,ie) = ttens_tmp
-                    dptens(i,j,k,ie) =dptens_tmp
-                    vtens(i,j,1,k,ie)=utens_tmp
-                    vtens(i,j,2,k,ie)=vtens_tmp
                  enddo
               enddo
               !$ACC end data
@@ -1847,39 +1850,37 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
            call edgeVunpack(edge3, vtens(:,:,:,:,ie), 2*nlev, kptr, elem(ie)%desc)
            kptr=3*nlev
            call edgeVunpack(edge3, dptens(:,:,:,ie), nlev, kptr, elem(ie)%desc)
-        !enddo
-        !do ie=nets,nete
+        enddo
+        !$ACC parallel loop collapse(2) copyin(elem_array)
+        do ie=nets,nete
            do k=1,nlev
-              vtens(:,:,1,k,ie)=dt*vtens(:,:,1,k,ie)*elem(ie)%rspheremp(:,:)
-              vtens(:,:,2,k,ie)=dt*vtens(:,:,2,k,ie)*elem(ie)%rspheremp(:,:)
-              ttens(:,:,k,ie)=dt*ttens(:,:,k,ie)*elem(ie)%rspheremp(:,:)
-              dptens(:,:,k,ie)=dt*dptens(:,:,k,ie)*elem(ie)%rspheremp(:,:)
-           enddo
-
-           ! apply hypervis to u -> u+utens:
-           ! E0 = dpdn * .5*u dot u + dpdn * T  + dpdn*PHIS
-           ! E1 = dpdn * .5*(u+utens) dot (u+utens) + dpdn * (T-X) + dpdn*PHIS
-           ! E1-E0:   dpdn (u dot utens) + dpdn .5 utens dot utens   - dpdn X
-           !      X = (u dot utens) + .5 utens dot utens
-           !  alt:  (u+utens) dot utens
-           do k=1,nlev
+              elem_rspheremp_ptr = elem_array(13,ie)
+              elem_state_v_ptr   = elem_array(5,ie)
+              elem_state_T_ptr   = elem_array(4,ie)
+              elem_state_dp3d_ptr= elem_array(2,ie)
+              !$ACC data copyin(vtens(*,*,*,k,ie), ttens(*,*,k,ie), dptens(*,*,k,ie), elem_rspheremp) copy(elem_state_v(*,*,*,k), elem_state_T(*,*,k), elem_state_dp3d(*,*,k))
+              vtens(:,:,1,k,ie)=dt*vtens(:,:,1,k,ie)*elem_rspheremp(:,:)
+              vtens(:,:,2,k,ie)=dt*vtens(:,:,2,k,ie)*elem_rspheremp(:,:)
+              ttens(:,:,k,ie)=dt*ttens(:,:,k,ie)*elem_rspheremp(:,:)
+              dptens(:,:,k,ie)=dt*dptens(:,:,k,ie)*elem_rspheremp(:,:)
               do j=1,np
                  do i=1,np
-                    ! update v first (gives better results than updating v after heating)
-                    elem(ie)%state%v(i,j,:,k,nt)=elem(ie)%state%v(i,j,:,k,nt) + &
+                    elem_state_v(i,j,:,k)=elem_state_v(i,j,:,k) + &
                          vtens(i,j,:,k,ie)
 
-                    v1=elem(ie)%state%v(i,j,1,k,nt)
-                    v2=elem(ie)%state%v(i,j,2,k,nt)
+                    v1=elem_state_v(i,j,1,k)
+                    v2=elem_state_v(i,j,2,k)
                     heating = (vtens(i,j,1,k,ie)*v1  + vtens(i,j,2,k,ie)*v2 )
-                    elem(ie)%state%T(i,j,k,nt)=elem(ie)%state%T(i,j,k,nt) &
+                    elem_state_T(i,j,k)=elem_state_T(i,j,k) &
                          +ttens(i,j,k,ie)-heating/cp
-                    elem(ie)%state%dp3d(i,j,k,nt)=elem(ie)%state%dp3d(i,j,k,nt) + &
+                    elem_state_dp3d(i,j,k)=elem_state_dp3d(i,j,k) + &
                          dptens(i,j,k,ie)
                  enddo
               enddo
+              !$ACC end data
            enddo
          enddo ! ie
+         !$ACC end parallel loop
          call t_stopf("hypervis_dp after bndry")
        enddo ! cycle
 
@@ -3112,16 +3113,6 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
     in = desc_putmapP(4)
     iw = desc_putmapP(1)
        do k=1,vlyr
-          !do i=1,np,2
-             !edge%buf(kptr+k,is+i)   = v(i  ,1 ,k)
-             !edge%buf(kptr+k,is+i+1) = v(i+1,1 ,k)
-             !edge%buf(kptr+k,ie+i)   = v(np ,i ,k)
-             !edge%buf(kptr+k,ie+i+1) = v(np ,i+1 ,k)
-             !edge%buf(kptr+k,in+i)   = v(i  ,np,k)
-             !edge%buf(kptr+k,in+i+1) = v(i+1  ,np,k)
-             !edge%buf(kptr+k,iw+i)   = v(1  ,i ,k)
-             !edge%buf(kptr+k,iw+i+1) = v(1  ,i+1 ,k)
-          !enddo
           edge_buf_in_1(k) = v(1,4,k)
           edge_buf_in_2(k) = v(2,4,k)
           edge_buf_in_3(k) = v(3,4,k)
