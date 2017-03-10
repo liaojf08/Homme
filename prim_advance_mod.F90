@@ -2023,7 +2023,6 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
             edge_buf_iw_2_ptr = pack_buf_array(18,2,ie)
             edge_buf_iw_3_ptr = pack_buf_array(19,2,ie)
             edge_buf_iw_4_ptr = pack_buf_array(20,2,ie)
-           !!$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
            !$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
              call my_edgeVpack_acc(vtens(:,:,:,1:64,ie) , nlev , nlev+1 , elem_desc_putmapP(:), &
                 elem_desc_reverse, &
@@ -2035,7 +2034,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                 !$ACC end data 
             enddo
             !$ACC end parallel loop
-         do ie=nets,nete
+         
+         !$ACC parallel loop copyin(pack_elem_array, pack_buf_array, vtens)
+        do ie=nets,nete
 
             elem_desc_reverse_ptr   = pack_elem_array(1,ie)
             elem_desc_putmapP_ptr         = pack_elem_array(2,ie)
@@ -2059,6 +2060,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
             edge_buf_iw_2_ptr = pack_buf_array(18,3,ie)
             edge_buf_iw_3_ptr = pack_buf_array(19,3,ie)
             edge_buf_iw_4_ptr = pack_buf_array(20,3,ie)
+           !!$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+           !$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
              call my_edgeVpack_acc(vtens(:,:,:,65:128,ie) , nlev , 2*nlev , elem_desc_putmapP(:), &
                 elem_desc_reverse, &
                 edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
@@ -2066,9 +2069,17 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                 edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
                 edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
                 edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-           !kptr=nlev
+                !$ACC END DATA
+                !kptr=nlev
            !call edgeVpack(edge3,vtens(:,:,:,:,ie),2*nlev,kptr,elem(ie)%desc)
-            
+       enddo
+       !$ACC end parallel loop
+
+       !$ACC parallel loop copyin(pack_elem_array, pack_buf_array, dptens)
+       do ie=nets, nete 
+
+            elem_desc_reverse_ptr   = pack_elem_array(1,ie)
+            elem_desc_putmapP_ptr         = pack_elem_array(2,ie)
             edge_buf_in_1_ptr = pack_buf_array(1,4,ie)
             edge_buf_in_2_ptr = pack_buf_array(2,4,ie)
             edge_buf_in_3_ptr = pack_buf_array(3,4,ie)
@@ -2089,6 +2100,8 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
             edge_buf_iw_2_ptr = pack_buf_array(18,4,ie)
             edge_buf_iw_3_ptr = pack_buf_array(19,4,ie)
             edge_buf_iw_4_ptr = pack_buf_array(20,4,ie)
+           !!$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+           !$ACC data  copyin(elem_desc_putmapP, elem_desc_reverse) copyout(edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
             call my_edgeVpack_acc(dptens(:,:,:,ie) , nlev , 3*nlev , elem_desc_putmapP(:), &
               elem_desc_reverse, &
               edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8, &
@@ -2096,9 +2109,11 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
               edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
               edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
-            !kptr=3*nlev  
+              !$ACC END DATA
+              !kptr=3*nlev  
             !call edgeVpack(edge3,dptens(:,:,:,ie),nlev,kptr,elem(ie)%desc)
         enddo
+        !$ACC end parallel loop
 
        ! do ie=nets,nete
        !     kptr=0
