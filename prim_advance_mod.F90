@@ -1654,7 +1654,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   !  For correct scaling, dt2 should be the same 'dt2' used in the leapfrog advace
   !
   !
-  use dimensions_mod, only : np, np, nlev
+  use dimensions_mod, only : np, np, nlev, max_corner_elem
   use control_mod, only : nu, nu_div, nu_s, hypervis_order, hypervis_subcycle, nu_p, nu_top, psurf_vis
   use hybrid_mod, only : hybrid_t
   use hybvcoord_mod, only : hvcoord_t
@@ -1742,6 +1742,57 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
   integer(kind=8), dimension(13,nets:nete) :: elem_array
 
+  integer(kind=8), dimension(20,3,nets:nete) :: pack_buf_array
+  
+  real(kind=8), dimension(nlev) :: edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8
+  pointer(edge_buf_5_ptr, edge_buf_5)
+  pointer(edge_buf_6_ptr, edge_buf_6)
+  pointer(edge_buf_7_ptr, edge_buf_7)
+  pointer(edge_buf_8_ptr, edge_buf_8)
+
+  real(kind=8), dimension(nlev) :: edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4
+  pointer(edge_buf_in_1_ptr, edge_buf_in_1)
+  pointer(edge_buf_in_2_ptr, edge_buf_in_2)
+  pointer(edge_buf_in_3_ptr, edge_buf_in_3)
+  pointer(edge_buf_in_4_ptr, edge_buf_in_4)
+
+
+  real(kind=8), dimension(nlev) :: edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4
+  pointer(edge_buf_is_1_ptr, edge_buf_is_1)
+  pointer(edge_buf_is_2_ptr, edge_buf_is_2)
+  pointer(edge_buf_is_3_ptr, edge_buf_is_3)
+  pointer(edge_buf_is_4_ptr, edge_buf_is_4)
+
+  real(kind=8), dimension(nlev) :: edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4
+  pointer(edge_buf_ie_1_ptr, edge_buf_ie_1)
+  pointer(edge_buf_ie_2_ptr, edge_buf_ie_2)
+  pointer(edge_buf_ie_3_ptr, edge_buf_ie_3)
+  pointer(edge_buf_ie_4_ptr, edge_buf_ie_4)
+
+  real(kind=8), dimension(nlev) :: edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4
+  pointer(edge_buf_iw_1_ptr, edge_buf_iw_1)
+  pointer(edge_buf_iw_2_ptr, edge_buf_iw_2)
+  pointer(edge_buf_iw_3_ptr, edge_buf_iw_3)
+  pointer(edge_buf_iw_4_ptr, edge_buf_iw_4)
+  
+  
+  logical :: elem_desc_reverse_south
+  pointer(elem_desc_reverse_south_ptr, elem_desc_reverse_south)
+
+  logical :: elem_desc_reverse_north
+  pointer(elem_desc_reverse_north_ptr, elem_desc_reverse_north)
+
+  logical :: elem_desc_reverse_east
+  pointer(elem_desc_reverse_east_ptr, elem_desc_reverse_east)
+
+  logical :: elem_desc_reverse_west
+  pointer(elem_desc_reverse_west_ptr, elem_desc_reverse_west)
+
+  integer, dimension(swest+4*max_corner_elem-1) :: elem_desc_putmapP
+  pointer(elem_desc_putmapP_ptr, elem_desc_putmapP)
+  
+  integer(kind=8), dimension(5,nets:nete)      :: pack_elem_array
+  
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
   call t_startf('advance_hypervis_dp')
@@ -1790,7 +1841,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
               elem_mp_ptr                        = elem_array(10,ie)  
               elem_metinv_ptr                    = elem_array(11,ie)
               elem_spheremp_ptr                  = elem_array(12,ie)
-              !$ACC data copy(elem_derived_dpdiss_ave(*,*,k)) copyout(vtens(*,*,*,k,ie), ttens(*,*,k,ie), dptens(*,*,k,ie), elem_derived_dpdiss_biharmonic(*,*,k)) copyin(elem_state_dp3d(*,*,k), elem_state_T(*,*,k), elem_state_v(*,*,*,k), elem_metdet, elem_rmetdet, elem_D, elem_Dinv, elem_mp, elem_metinv, elem_spheremp)
+              !$ACC data copy(elem_derived_dpdiss_ave(*,*,k), elem_derived_dpdiss_biharmonic(*,*,k), vtens(*,*,*,k,ie), ttens(*,*,k,ie), dptens(*,*,k,ie)) copyin(elem_state_dp3d(*,*,k), elem_state_T(*,*,k), elem_state_v(*,*,*,k), elem_metdet, elem_rmetdet, elem_D, elem_Dinv, elem_mp, elem_metinv, elem_spheremp)
               elem_derived_dpdiss_ave(:,:,k)=elem_derived_dpdiss_ave(:,:,k)+&
                    eta_ave_w*elem_state_dp3d(:,:,k)/hypervis_subcycle
               elem_derived_dpdiss_biharmonic(:,:,k)=elem_derived_dpdiss_biharmonic(:,:,k)+&
@@ -1827,8 +1878,104 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
         !$ACC END parallel loop
         call t_stopf("hypervis_dp before bndry")
         call t_startf("hypervis_dp before bndry 2")
+        do ie=nets,nete 
+            pack_buf_array(1,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+1))
+            pack_buf_array(2,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+2))
+            pack_buf_array(3,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+3))
+            pack_buf_array(4,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+4))
+            pack_buf_array(5,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(5)+1))
+            pack_buf_array(6,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(6)+1))
+            pack_buf_array(7,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(7)+1))
+            pack_buf_array(8,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(8)+1))
+            pack_buf_array(9,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(south)+1))
+            pack_buf_array(10,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(south)+2))
+            pack_buf_array(11,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(south)+3))
+            pack_buf_array(12,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(south)+4))
+            pack_buf_array(13,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(east)+1))
+            pack_buf_array(14,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(east)+2))
+            pack_buf_array(15,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(east)+3))
+            pack_buf_array(16,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(east)+4))
+            pack_buf_array(17,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(west)+1))
+            pack_buf_array(18,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(west)+2))
+            pack_buf_array(19,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(west)+3))
+            pack_buf_array(20,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(west)+4))
+            
+            pack_buf_array(1,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(north)+1))
+            pack_buf_array(2,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(north)+2))
+            pack_buf_array(3,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(north)+3))
+            pack_buf_array(4,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(north)+4))
+            pack_buf_array(5,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(5)+1))
+            pack_buf_array(6,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(6)+1))
+            pack_buf_array(7,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(7)+1))
+            pack_buf_array(8,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(8)+1))
+            pack_buf_array(9,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(south)+1))
+            pack_buf_array(10,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(south)+2))
+            pack_buf_array(11,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(south)+3))
+            pack_buf_array(12,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(south)+4))
+            pack_buf_array(13,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(east)+1))
+            pack_buf_array(14,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(east)+2))
+            pack_buf_array(15,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(east)+3))
+            pack_buf_array(16,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(east)+4))
+            pack_buf_array(17,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(west)+1))
+            pack_buf_array(18,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(west)+2))
+            pack_buf_array(19,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(west)+3))
+            pack_buf_array(20,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%putmapP(west)+4))
+            
+            pack_buf_array(1,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(north)+1))
+            pack_buf_array(2,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(north)+2))
+            pack_buf_array(3,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(north)+3))
+            pack_buf_array(4,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(north)+4))
+            pack_buf_array(5,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(5)+1))
+            pack_buf_array(6,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(6)+1))
+            pack_buf_array(7,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(7)+1))
+            pack_buf_array(8,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(8)+1))
+            pack_buf_array(9,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(south)+1))
+            pack_buf_array(10,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(south)+2))
+            pack_buf_array(11,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(south)+3))
+            pack_buf_array(12,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(south)+4))
+            pack_buf_array(13,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(east)+1))
+            pack_buf_array(14,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(east)+2))
+            pack_buf_array(15,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(east)+3))
+            pack_buf_array(16,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(east)+4))
+            pack_buf_array(17,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(west)+1))
+            pack_buf_array(18,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(west)+2))
+            pack_buf_array(19,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(west)+3))
+            pack_buf_array(20,3,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%putmapP(west)+4))
+    
+            pack_elem_array(1,ie) = loc(elem(ie)%desc%reverse(south))
+            pack_elem_array(2,ie) = loc(elem(ie)%desc%reverse(north))
+            pack_elem_array(3,ie) = loc(elem(ie)%desc%reverse(east))
+            pack_elem_array(4,ie) = loc(elem(ie)%desc%reverse(west))
+            pack_elem_array(5,ie)= loc(elem(ie)%desc%putmapP)
+        enddo
+
         do ie=nets,nete
 
+            elem_desc_reverse_south_ptr   = pack_elem_array(1,ie)
+            elem_desc_reverse_north_ptr   = pack_elem_array(2,ie)
+            elem_desc_reverse_east_ptr    = pack_elem_array(3,ie)
+            elem_desc_reverse_west_ptr    = pack_elem_array(4,ie)
+            elem_desc_putmapP_ptr         = pack_elem_array(5,ie)
+            edge_buf_in_1_ptr = pack_buf_array(1,1,ie)
+            edge_buf_in_2_ptr = pack_buf_array(2,1,ie)
+            edge_buf_in_3_ptr = pack_buf_array(3,1,ie)
+            edge_buf_in_4_ptr = pack_buf_array(4,1,ie)
+            edge_buf_5_ptr  = pack_buf_array(5,1,ie)
+            edge_buf_6_ptr  = pack_buf_array(6,1,ie)
+            edge_buf_7_ptr  = pack_buf_array(7,1,ie)
+            edge_buf_8_ptr  = pack_buf_array(8,1,ie)
+            edge_buf_is_1_ptr = pack_buf_array(9,1,ie)
+            edge_buf_is_2_ptr = pack_buf_array(10,1,ie)
+            edge_buf_is_3_ptr = pack_buf_array(11,1,ie)
+            edge_buf_is_4_ptr = pack_buf_array(12,1,ie)
+            edge_buf_ie_1_ptr = pack_buf_array(13,1,ie)
+            edge_buf_ie_2_ptr = pack_buf_array(14,1,ie)
+            edge_buf_ie_3_ptr = pack_buf_array(15,1,ie)
+            edge_buf_ie_4_ptr = pack_buf_array(16,1,ie)
+            edge_buf_iw_1_ptr = pack_buf_array(17,1,ie)
+            edge_buf_iw_2_ptr = pack_buf_array(18,1,ie)
+            edge_buf_iw_3_ptr = pack_buf_array(19,1,ie)
+            edge_buf_iw_4_ptr = pack_buf_array(20,1,ie)
            kptr=0
            call edgeVpack(edge3, ttens(:,:,:,ie),nlev,kptr,elem(ie)%desc)
            kptr=nlev
@@ -2963,28 +3110,28 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   !call system_clock(count_stop, count_rate, count_max)
    !write(*,*) "My_advance_acc time=",count_stop-count_start
    do ie=nets,nete
-      elem_desc_reverse_ptr            = loc(elem(ie)%desc%reverse)
-      elem_desc_putmapP_ptr            = loc(elem(ie)%desc%putmapP)
-      edge_buf_5_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(5)+1))
-      edge_buf_6_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(6)+1))
-      edge_buf_7_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(7)+1))
-      edge_buf_8_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(8)+1))
-      edge_buf_in_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+1))
-      edge_buf_in_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+2))
-      edge_buf_in_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+3))
-      edge_buf_in_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+4))
-      edge_buf_is_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+1))
-      edge_buf_is_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+2))
-      edge_buf_is_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+3))
-      edge_buf_is_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+4))
-      edge_buf_ie_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+1))
-      edge_buf_ie_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+2))
-      edge_buf_ie_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+3))
-      edge_buf_ie_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+4))
-      edge_buf_iw_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+1))
-      edge_buf_iw_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+2))
-      edge_buf_iw_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+3))
-      edge_buf_iw_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+4))
+      !elem_desc_reverse_ptr            = loc(elem(ie)%desc%reverse)
+      !elem_desc_putmapP_ptr            = loc(elem(ie)%desc%putmapP)
+      !edge_buf_5_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(5)+1))
+      !edge_buf_6_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(6)+1))
+      !edge_buf_7_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(7)+1))
+      !edge_buf_8_ptr    = loc(edge3p1%buf(:, elem_desc_putmapP(8)+1))
+      !edge_buf_in_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+1))
+      !edge_buf_in_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+2))
+      !edge_buf_in_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+3))
+      !edge_buf_in_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(north)+4))
+      !edge_buf_is_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+1))
+      !edge_buf_is_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+2))
+      !edge_buf_is_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+3))
+      !edge_buf_is_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(south)+4))
+      !edge_buf_ie_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+1))
+      !edge_buf_ie_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+2))
+      !edge_buf_ie_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+3))
+      !edge_buf_ie_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(east)+4))
+      !edge_buf_iw_1_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+1))
+      !edge_buf_iw_2_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+2))
+      !edge_buf_iw_3_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+3))
+      !edge_buf_iw_4_ptr = loc(edge3p1%buf(:, elem_desc_putmapP(west)+4))
       
       !elem_state_ps_v_np1 = elem_array(19,ie)
 
