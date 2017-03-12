@@ -1224,27 +1224,60 @@ contains
     integer :: n0_qdp, np1_qdp
     integer(kind=8), dimension(11,nets:nete)  :: elem_array
 
+    real (kind=real_kind), dimension(np,np,2,nlev) :: elem_derived_vn0
+    pointer(elem_derived_vn0_ptr, elem_derived_vn0)
+
+    real (kind=real_kind), dimension(np,np) :: deriv_dvv
+    pointer(deriv_dvv_ptr, deriv_dvv)
+
+    real (kind=real_kind), dimension(np,np) :: elem_metdet
+    pointer(elem_metdet_ptr, elem_metdet)
+    
+    real (kind=real_kind), dimension(2,2,np,np) :: elem_Dinv
+    pointer(elem_Dinv_ptr, elem_Dinv)
+    
+    real (kind=real_kind), dimension(np,np) :: elem_rmetdet
+    pointer(elem_rmetdet_ptr, elem_rmetdet)
+    
+    real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_divdp
+    pointer(elem_derived_divdp_ptr, elem_derived_divdp)
+    
+    real (kind=real_kind), dimension(np,np,nlev) :: elem_derived_divdp_proj
+    pointer(elem_derived_divdp_proj_ptr, elem_derived_divdp_proj)
     call t_barrierf('sync_prim_advec_tracers_remap_k2', hybrid%par%comm)
     call t_startf('prim_advec_tracers_remap_rk2')
     call TimeLevel_Qdp( tl, qsplit, n0_qdp, np1_qdp) !time levels for qdp are not the same
     rkstage = 3 !   3 stage RKSSP scheme, with optimal SSP CFL
-    !do ie=nets,nete
-    !    elem_array(1,ie) = loc(elem(ie)%derived%vn0(:,:,:,:))
-    !    
-    !enddo
+    do ie=nets,nete
+        elem_array(1,ie) = loc(elem(ie)%derived%vn0(:,:,:,:))
+        elem_array(3,ie) = loc(elem(ie)%metdet)
+        elem_array(4,ie) = loc(elem(ie)%Dinv)
+        elem_array(5,ie) = loc(elem(ie)%rmetdet)
+        elem_array(6,ie) = loc(elem(ie)%derived%divdp_proj) 
+        elem_array(7,ie) = loc(elem(ie)%derived%divdp)
+    enddo
+    deriv_dvv_ptr = loc(deriv%dvv)
 
     call t_startf('cal before euler_step')
-    !!$ACC parallel loop collapse(2) 
+    !$ACC parallel loop collapse(2) tile(ie:1, k:16) copyin(elem_array, deriv_dvv) annotate(entire(deriv_dvv)) 
     do ie=nets,nete
       do k=1,nlev
         !gradQ(:,:,1)=elem(ie)%derived%vn0(:,:,1,k)
         !gradQ(:,:,2)=elem(ie)%derived%vn0(:,:,2,k)
         !elem(ie)%derived%divdp(:,:,k) = divergence_sphere(gradQ,deriv,elem(ie))
-        call my_divergence_sphere(elem(ie)%derived%vn0(:,:,:,k), deriv%dvv, elem(ie)%metdet(:,:), elem(ie)%Dinv(:,:,:,:), elem(ie)%rmetdet(:,:), rrearth, elem(ie)%derived%divdp(:,:,k))
-         elem(ie)%derived%divdp_proj(:,:,k) = elem(ie)%derived%divdp(:,:,k)
+        elem_derived_vn0_ptr        = elem_array(1,ie)
+        elem_metdet_ptr             = elem_array(3,ie)
+        elem_dinv_ptr               = elem_array(4,ie)
+        elem_rmetdet_ptr            = elem_array(5,ie)
+        elem_derived_divdp_proj_ptr = elem_array(6,ie)
+        elem_derived_divdp_ptr      = elem_array(7,ie)
+        !$ACC data copyin(elem_derived_vn0(*,*,*,k), elem_metdet, elem_Dinv, elem_rmetdet) copyout(elem_derived_divdp(*,*,k), elem_derived_divdp_proj(*,*,k))
+        call my_divergence_sphere(elem_derived_vn0(:,:,:,k), deriv_dvv, elem_metdet(:,:), elem_Dinv(:,:,:,:), elem_rmetdet(:,:), rrearth, elem_derived_divdp(:,:,k))
+         elem_derived_divdp_proj(:,:,k) = elem_derived_divdp(:,:,k)
+         !$ACC end data
       enddo
     enddo
-    !!$ACC end parallel loop
+    !$ACC end parallel loop
     call t_stopf('cal before euler_step')
 
     !rhs_multiplier is for obtaining dp_tracers at each stage:
