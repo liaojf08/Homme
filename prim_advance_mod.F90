@@ -3234,7 +3234,7 @@ end subroutine
   real (kind=8), dimension(np,np,nlev) :: elem_state_dp3d_nm1
   pointer(elem_state_dp3d_nm1_ptr, elem_state_dp3d_nm1)
 
-  real (kind=8), dimension(np,np,2,2) :: elem_Dinv
+  real (kind=8), dimension(2,2,np,np) :: elem_Dinv
   pointer(elem_Dinv_ptr, elem_Dinv)
 
   real (kind=8), dimension(np,np,2,nlev) :: elem_state_v_n0
