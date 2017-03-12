@@ -2384,7 +2384,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 !        enddo
         call t_stopf("hypervis_dp after bndry")
         call t_startf("hypervis_dp after bndry2")
-        !$ACC parallel loop collapse(2) copyin(elem_array)
+        !$ACC parallel loop collapse(2) tile(ie:1, k:16) copyin(elem_array)
         do ie=nets,nete
            do k=1,nlev
               elem_rspheremp_ptr = elem_array(13,ie)
@@ -3193,7 +3193,7 @@ end subroutine
   real(kind=8), intent(in) :: my_rrearth
   type (hvcoord_t)     , intent(in) :: hvcoord
   type (element_t),dimension(nets:nete), intent(inout) :: elem
-  integer(kind=8), dimension(23,nets:nete), intent(inout) :: elem_array
+  integer(kind=8), dimension(24,nets:nete), intent(inout) :: elem_array
   type (derivative_t)  , intent(in) :: deriv
   real (kind=8) :: eta_ave_w  ! weighting for eta_dot_dpdn mean flux
 
@@ -3508,7 +3508,7 @@ end subroutine
   real (kind=real_kind) ::  glnps1,glnps2,gpterm
   integer :: i,j,k,kptr,ie
   integer(kind=8) :: count_start, count_stop, count_rate, count_max
-  integer(kind=8), dimension(23,nets:nete) :: elem_array
+  integer(kind=8), dimension(24,nets:nete) :: elem_array
 
   real (kind=8), dimension(np,np)   :: elem_state_ps_v_np1
   pointer(elem_state_ps_v_np1_ptr, elem_state_ps_v_np1)
@@ -3562,6 +3562,9 @@ end subroutine
   real (kind=real_kind), dimension(np,np,2,nlev) :: elem_state_v
   pointer(elem_state_v_ptr, elem_state_v)
   
+  real (kind=real_kind), dimension(np,np) :: elem_rspheremp
+  pointer(elem_rspheremp_ptr, elem_rspheremp)
+  
   integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array
   integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array2
   integer(kind=8), dimension(3,nets:nete)      :: pack_elem_array
@@ -3596,7 +3599,7 @@ end subroutine
      elem_array(21,ie)      = loc(elem(ie)%metdet)
      elem_array(22,ie)      = loc(elem(ie)%rmetdet)
      elem_array(23,ie)      = loc(elem(ie)%D)
-
+     elem_array(24,ie)      = loc(elem(ie)%rspheremp)
   enddo
   call t_startf('my_advance')
    call my_advance_acc(np1,nm1,n0,qn0,dt2,rrearth,elem,hvcoord,&
@@ -4122,15 +4125,23 @@ end subroutine
   !   kptr=3*nlev+1
   !   call edgeVunpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
   !enddo
-
+  
+  !$ACC parallel loop collapse(2) tile(ie:1,k:16) copyin(elem_array)
   do ie=nets, nete
      do k=1,nlev
-        elem(ie)%state%T(:,:,k,np1)   = elem(ie)%rspheremp(:,:)*elem(ie)%state%T(:,:,k,np1)
-        elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,1,k,np1)
-        elem(ie)%state%v(:,:,2,k,np1) = elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,2,k,np1)
-        elem(ie)%state%dp3d(:,:,k,np1)= elem(ie)%rspheremp(:,:)*elem(ie)%state%dp3d(:,:,k,np1)
+        elem_state_T_ptr = elem_array(12,ie)
+        elem_state_v_ptr = elem_array(7,ie)
+        elem_state_dp3d_ptr = elem_array(3,ie)
+        elem_rspheremp_ptr  = elem_array(24,ie)
+        !$ACC DATA copyin(elem_rspheremp) copy(elem_state_T(*,*,k), elem_state_v(*,*,*,k), elem_state_dp3d(*,*,k))
+        elem_state_T(:,:,k)   = elem_rspheremp(:,:)*elem_state_T(:,:,k)
+        elem_state_v(:,:,1,k) = elem_rspheremp(:,:)*elem_state_v(:,:,1,k)
+        elem_state_v(:,:,2,k) = elem_rspheremp(:,:)*elem_state_v(:,:,2,k)
+        elem_state_dp3d(:,:,k)= elem_rspheremp(:,:)*elem_state_dp3d(:,:,k)
+        !$ACC END DATA
      enddo
   end do
+  !$ACC end parallel loop
   call t_stopf("advance unpack")
 #ifdef DEBUGOMP
 #if (! defined ELEMENT_OPENMP)
