@@ -3452,7 +3452,7 @@ end subroutine
   !
   ! ===================================
   use kinds, only : real_kind
-  use dimensions_mod, only : np, np, nlev
+  use dimensions_mod, only : np, np, nlev, max_corner_elem
   use hybrid_mod, only : hybrid_t
   use element_mod, only : element_t
   use derivative_mod, only : derivative_t, divergence_sphere, gradient_sphere, vorticity_sphere
@@ -3955,30 +3955,179 @@ end subroutine
 
   call t_startf("advance unpack")
   do ie=nets,nete
-     ! ===========================================================
-     ! Unpack the edges for vgrad_T and v tendencies...
-     ! ===========================================================
      kptr=0
      call edgeVunpack(edge3p1, elem(ie)%state%ps_v(:,:,np1), 1, kptr, elem(ie)%desc)
-
-     kptr=1
-     call edgeVunpack(edge3p1, elem(ie)%state%T(:,:,:,np1), nlev, kptr, elem(ie)%desc)
-
-     kptr=nlev+1
-     call edgeVunpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1), 2*nlev, kptr, elem(ie)%desc)
-
-        kptr=kptr+2*nlev
-        call edgeVunpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
-
   enddo
+
+ 
+  edge_nlyr = edge3p1%nlyr
+  edge_nbuf = edge3p1%nbuf
+  !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2, elem_array) 
+  do ie=nets, nete
+     
+      elem_desc_getmapP_ptr            = pack_elem_array(3,ie)
+      edge_buf_in_1_ptr                = pack_buf_array2(1,1,ie) 
+      edge_buf_in_2_ptr                = pack_buf_array2(2,1,ie) 
+      edge_buf_in_3_ptr                = pack_buf_array2(3,1,ie) 
+      edge_buf_in_4_ptr                = pack_buf_array2(4,1,ie) 
+      edge_buf_5_ptr                   = pack_buf_array2(5,1,ie) 
+      edge_buf_6_ptr                   = pack_buf_array2(6,1,ie) 
+      edge_buf_7_ptr                   = pack_buf_array2(7,1,ie) 
+      edge_buf_8_ptr                   = pack_buf_array2(8,1,ie) 
+      edge_buf_is_1_ptr                = pack_buf_array2(9,1,ie) 
+      edge_buf_is_2_ptr                = pack_buf_array2(10,1,ie)
+      edge_buf_is_3_ptr                = pack_buf_array2(11,1,ie)
+      edge_buf_is_4_ptr                = pack_buf_array2(12,1,ie)
+      edge_buf_ie_1_ptr                = pack_buf_array2(13,1,ie)
+      edge_buf_ie_2_ptr                = pack_buf_array2(14,1,ie)
+      edge_buf_ie_3_ptr                = pack_buf_array2(15,1,ie)
+      edge_buf_ie_4_ptr                = pack_buf_array2(16,1,ie)
+      edge_buf_iw_1_ptr                = pack_buf_array2(17,1,ie)
+      edge_buf_iw_2_ptr                = pack_buf_array2(18,1,ie)
+      edge_buf_iw_3_ptr                = pack_buf_array2(19,1,ie)
+      edge_buf_iw_4_ptr                = pack_buf_array2(20,1,ie)
+      elem_state_T_ptr                 = elem_array(12,ie) 
+     !$ACC data copy(elem_state_T) copyin(elem_desc_getmapP,edge_buf_5,edge_buf_6,edge_buf_7,edge_buf_8,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4) 
+            call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              elem_state_T(:,:,:), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC end data
+      !kptr=1
+      !call edgeVunpack(edge3p1, elem(ie)%state%T(:,:,:,np1), nlev, kptr, elem(ie)%desc)
+  enddo
+  !$ACC end parallel loop
+  !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2, elem_array) 
+  do ie=nets, nete
+     
+      elem_desc_getmapP_ptr            = pack_elem_array(3,ie)
+      edge_buf_in_1_ptr                = pack_buf_array2(1,2,ie) 
+      edge_buf_in_2_ptr                = pack_buf_array2(2,2,ie) 
+      edge_buf_in_3_ptr                = pack_buf_array2(3,2,ie) 
+      edge_buf_in_4_ptr                = pack_buf_array2(4,2,ie) 
+      edge_buf_5_ptr                   = pack_buf_array2(5,2,ie) 
+      edge_buf_6_ptr                   = pack_buf_array2(6,2,ie) 
+      edge_buf_7_ptr                   = pack_buf_array2(7,2,ie) 
+      edge_buf_8_ptr                   = pack_buf_array2(8,2,ie) 
+      edge_buf_is_1_ptr                = pack_buf_array2(9,2,ie) 
+      edge_buf_is_2_ptr                = pack_buf_array2(10,2,ie)
+      edge_buf_is_3_ptr                = pack_buf_array2(11,2,ie)
+      edge_buf_is_4_ptr                = pack_buf_array2(12,2,ie)
+      edge_buf_ie_1_ptr                = pack_buf_array2(13,2,ie)
+      edge_buf_ie_2_ptr                = pack_buf_array2(14,2,ie)
+      edge_buf_ie_3_ptr                = pack_buf_array2(15,2,ie)
+      edge_buf_ie_4_ptr                = pack_buf_array2(16,2,ie)
+      edge_buf_iw_1_ptr                = pack_buf_array2(17,2,ie)
+      edge_buf_iw_2_ptr                = pack_buf_array2(18,2,ie)
+      edge_buf_iw_3_ptr                = pack_buf_array2(19,2,ie)
+      edge_buf_iw_4_ptr                = pack_buf_array2(20,2,ie)
+      elem_state_v_ptr                 = elem_array(7,ie) 
+     !$ACC data copy(elem_state_v) copyin(elem_desc_getmapP,edge_buf_5,edge_buf_6,edge_buf_7,edge_buf_8,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4) 
+            call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              elem_state_v(:,:,:,1:64), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC end data
+     !kptr=nlev+1
+     !call edgeVunpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1), 2*nlev, kptr, elem(ie)%desc)
+  enddo
+  !$ACC end parallel loop
+  !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2, elem_array) 
+  do ie=nets, nete
+      elem_desc_getmapP_ptr            = pack_elem_array(3,ie)
+      edge_buf_in_1_ptr                = pack_buf_array2(1,3,ie) 
+      edge_buf_in_2_ptr                = pack_buf_array2(2,3,ie) 
+      edge_buf_in_3_ptr                = pack_buf_array2(3,3,ie) 
+      edge_buf_in_4_ptr                = pack_buf_array2(4,3,ie) 
+      edge_buf_5_ptr                   = pack_buf_array2(5,3,ie) 
+      edge_buf_6_ptr                   = pack_buf_array2(6,3,ie) 
+      edge_buf_7_ptr                   = pack_buf_array2(7,3,ie) 
+      edge_buf_8_ptr                   = pack_buf_array2(8,3,ie) 
+      edge_buf_is_1_ptr                = pack_buf_array2(9,3,ie) 
+      edge_buf_is_2_ptr                = pack_buf_array2(10,3,ie)
+      edge_buf_is_3_ptr                = pack_buf_array2(11,3,ie)
+      edge_buf_is_4_ptr                = pack_buf_array2(12,3,ie)
+      edge_buf_ie_1_ptr                = pack_buf_array2(13,3,ie)
+      edge_buf_ie_2_ptr                = pack_buf_array2(14,3,ie)
+      edge_buf_ie_3_ptr                = pack_buf_array2(15,3,ie)
+      edge_buf_ie_4_ptr                = pack_buf_array2(16,3,ie)
+      edge_buf_iw_1_ptr                = pack_buf_array2(17,3,ie)
+      edge_buf_iw_2_ptr                = pack_buf_array2(18,3,ie)
+      edge_buf_iw_3_ptr                = pack_buf_array2(19,3,ie)
+      edge_buf_iw_4_ptr                = pack_buf_array2(20,3,ie)
+      elem_state_v_ptr                 = elem_array(7,ie) 
+     !$ACC data copy(elem_state_v) copyin(elem_desc_getmapP,edge_buf_5,edge_buf_6,edge_buf_7,edge_buf_8,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4) 
+            call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              elem_state_v(:,:,:,65:128), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA
+     !kptr=nlev+1
+     !call edgeVunpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1), 2*nlev, kptr, elem(ie)%desc)
+  enddo
+  !$ACC end parallel loop
+
+  !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2, elem_array) 
+  do ie=nets, nete
+      elem_desc_getmapP_ptr            = pack_elem_array(3,ie)
+      edge_buf_in_1_ptr                = pack_buf_array2(1,4,ie) 
+      edge_buf_in_2_ptr                = pack_buf_array2(2,4,ie) 
+      edge_buf_in_3_ptr                = pack_buf_array2(3,4,ie) 
+      edge_buf_in_4_ptr                = pack_buf_array2(4,4,ie) 
+      edge_buf_5_ptr                   = pack_buf_array2(5,4,ie) 
+      edge_buf_6_ptr                   = pack_buf_array2(6,4,ie) 
+      edge_buf_7_ptr                   = pack_buf_array2(7,4,ie) 
+      edge_buf_8_ptr                   = pack_buf_array2(8,4,ie) 
+      edge_buf_is_1_ptr                = pack_buf_array2(9,4,ie) 
+      edge_buf_is_2_ptr                = pack_buf_array2(10,4,ie)
+      edge_buf_is_3_ptr                = pack_buf_array2(11,4,ie)
+      edge_buf_is_4_ptr                = pack_buf_array2(12,4,ie)
+      edge_buf_ie_1_ptr                = pack_buf_array2(13,4,ie)
+      edge_buf_ie_2_ptr                = pack_buf_array2(14,4,ie)
+      edge_buf_ie_3_ptr                = pack_buf_array2(15,4,ie)
+      edge_buf_ie_4_ptr                = pack_buf_array2(16,4,ie)
+      edge_buf_iw_1_ptr                = pack_buf_array2(17,4,ie)
+      edge_buf_iw_2_ptr                = pack_buf_array2(18,4,ie)
+      edge_buf_iw_3_ptr                = pack_buf_array2(19,4,ie)
+      edge_buf_iw_4_ptr                = pack_buf_array2(20,4,ie)
+      elem_state_dp3d_ptr                 = elem_array(3,ie) 
+     !$ACC data copy(elem_state_dp3d) copyin(elem_desc_getmapP,edge_buf_5,edge_buf_6,edge_buf_7,edge_buf_8,edge_buf_in_1,edge_buf_in_2,edge_buf_in_3,edge_buf_in_4,edge_buf_is_1,edge_buf_is_2,edge_buf_is_3,edge_buf_is_4,edge_buf_ie_1,edge_buf_ie_2,edge_buf_ie_3,edge_buf_ie_4,edge_buf_iw_1,edge_buf_iw_2,edge_buf_iw_3,edge_buf_iw_4) 
+            call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              elem_state_dp3d(:,:,:), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA
+              !kptr=3*nlev+1
+     !call edgeVunpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
+  enddo
+  !$ACC end parallel loop
+  
+  !do ie=nets,nete
+  !   kptr=1
+  !   call edgeVunpack(edge3p1, elem(ie)%state%T(:,:,:,np1), nlev, kptr, elem(ie)%desc)
+  !   kptr=nlev+1
+  !   call edgeVunpack(edge3p1, elem(ie)%state%v(:,:,:,:,np1), 2*nlev, kptr, elem(ie)%desc)
+  !   kptr=3*nlev+1
+  !   call edgeVunpack(edge3p1, elem(ie)%state%dp3d(:,:,:,np1),nlev,kptr,elem(ie)%desc)
+  !enddo
 
   do ie=nets, nete
      do k=1,nlev
         elem(ie)%state%T(:,:,k,np1)   = elem(ie)%rspheremp(:,:)*elem(ie)%state%T(:,:,k,np1)
         elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,1,k,np1)
         elem(ie)%state%v(:,:,2,k,np1) = elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,2,k,np1)
-     end do
-     do k=1,nlev
         elem(ie)%state%dp3d(:,:,k,np1)= elem(ie)%rspheremp(:,:)*elem(ie)%state%dp3d(:,:,k,np1)
      enddo
   end do
