@@ -1818,7 +1818,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   deriv_dvv_ptr = loc(deriv%dvv)
      nu_ratio = nu_div/nu ! possibly weight div component more inside biharmonc_wk
      do ic=1,hypervis_subcycle
+        call t_startf("hypervis_dp biharmonic_wk_dp3d")
         call biharmonic_wk_dp3d(elem,dptens,ttens,vtens,deriv,edge3,hybrid,nt,nets,nete,nu_ratio)
+        call t_stopf("hypervis_dp biharmonic_wk_dp3d")
 
         ! conghui: this may be optimized
         call t_startf("hypervis_dp before bndry")
@@ -2218,7 +2220,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 
         call t_stopf("hypervis_dp before bndry 2")
 
+        call t_startf("hypervis bndry")
         call bndry_exchangeV(hybrid,edge3)
+        call t_stopf("hypervis bndry")
 
         call t_startf("hypervis_dp after bndry")
         edge_nlyr = edge3%nlyr
@@ -3954,7 +3958,9 @@ end subroutine
   ! sync is required
   ! =============================================================
 
+  call t_startf("advance bndry")
   call bndry_exchangeV(hybrid,edge3p1)
+  call t_stopf("advance bndry")
 
   call t_startf("advance unpack")
   do ie=nets,nete

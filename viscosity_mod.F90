@@ -1312,13 +1312,19 @@ integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array
     !enddo
     call t_stopf("biharmonic pack")
 
+    call t_startf("biharmonic bndry")
     call bndry_exchangeV(hybrid,edge3)
+    call t_stopf("biharmonic bndry")
 
+    call t_startf("biharmonic unpack")
     call my_edgeVunpack_viscosity_all(nets, nete, edge3%nlyr, edge3%nbuf, &
             edge3%buf, south, east, north, west, elem, ptens, vtens, dptens, nlev, &
             swest, max_corner_elem)
 
+    call t_stopf("biharmonic unpack")
+    call t_startf("biharmonic cal after")
     call my_unpack_after(nets, nete, elem, deriv, ptens, vtens, dptens, nu_ratio, rrearth)
+    call t_stopf("biharmonic cal after")
 
 end subroutine
 

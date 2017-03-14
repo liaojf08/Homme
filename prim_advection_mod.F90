@@ -1293,7 +1293,7 @@ contains
 
     !to finish the 2D advection step, we need to average the t and t+2 results to get a second order estimate for t+1.
     call t_startf('cal after euler_step')
-    call qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
+    call qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp ,   nets , nete )
     call t_stopf('cal after euler_step')
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1313,24 +1313,42 @@ contains
 !-----------------------------------------------------------------------------
 !-----------------------------------------------------------------------------
 
-  subroutine qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
+  subroutine qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp ,   nets , nete )
 #ifdef _ACCEL
     use cuda_mod, only: qdp_time_avg_cuda
 #endif
     implicit none
     type(element_t)     , intent(inout) :: elem(:)
-    integer             , intent(in   ) :: rkstage , n0_qdp , np1_qdp , nets , nete , limiter_option
-    real(kind=real_kind), intent(in   ) :: nu_p
-    integer :: ie
-#ifdef _ACCEL
-    call qdp_time_avg_cuda( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
-    return
-#endif
+    integer             , intent(in   ) :: rkstage , n0_qdp , np1_qdp , nets , nete 
+    integer(kind=8), dimension(2,nets:nete) :: qdp_loc
+    integer :: ie,q 
+    
+    real(kind=real_kind), dimension(4,4,nlev,qsize) :: elem_state_Qdp_np1
+    pointer(elem_state_Qdp_np1_ptr, elem_state_Qdp_np1)
+    
+    real(kind=real_kind), dimension(4,4,nlev,qsize) :: elem_state_Qdp_n0
+    pointer(elem_state_Qdp_n0_ptr, elem_state_Qdp_n0)
+
+    real :: rrkstage
+
+    rrkstage = 1/3
     do ie=nets,nete
-      elem(ie)%state%Qdp(:,:,:,1:qsize,np1_qdp) =               &
-                   ( elem(ie)%state%Qdp(:,:,:,1:qsize,n0_qdp) + &
-                     (rkstage-1)*elem(ie)%state%Qdp(:,:,:,1:qsize,np1_qdp) ) / rkstage
+        qdp_loc(1,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1_qdp))
+        qdp_loc(2,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,n0_qdp))
     enddo
+    !$ACC parallel loop tile(ie:12) copyin(qdp_loc)
+    do ie=nets,nete
+      do q=1,qsize
+      elem_state_Qdp_np1_ptr = qdp_loc(1,ie)
+      elem_state_Qdp_n0_ptr  = qdp_loc(2,ie)
+      !$ACC data copy(elem_state_qdp_np1(*,*,*,q)) copyin(elem_state_qdp_n0(*,*,*,q))
+      elem_state_Qdp_np1(:,:,:,q) =               &
+                   ( elem_state_Qdp_n0(:,:,:,q) + &
+                     (rkstage-1)*elem_state_Qdp_np1(:,:,:,q) ) * rrkstage
+      !$ACC end data
+      enddo
+    enddo
+    !$ACC end parallel loop 
   end subroutine qdp_time_avg
 
 !-----------------------------------------------------------------------------
@@ -2811,22 +2829,31 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     call t_startf('euler_init cal2')
     ! compute element qmin/qmax
     if ( rhs_multiplier == 0 ) then
+           call t_startf('min_max')
            call neighbor_minmax(elem,hybrid,edgeAdvQ2,nets,nete,qmin(:,:,nets:nete),qmax(:,:,nets:nete))
+           call t_stopf('min_max')
     endif
 
     if ( rhs_multiplier == 1 ) then
+      call t_startf('multiplier_1')
       call cal_qmin_qmax_rhs_multiplier_1(nets, nete, qsize, nlev, &
                                             np, Qtens_biharmonic, qmin, qmax)
+      call t_sttopf('multiplier_1')
     endif
 
     if ( rhs_multiplier == 2 ) then
       rhs_viss = 3
+        call t_startf('biharmonic_wk_scalar_minmax')
         call biharmonic_wk_scalar_minmax( elem , qtens_biharmonic , deriv , edgeAdvQ3 , hybrid , &
                                           nets , nete , qmin(:,:,nets:nete) , qmax(:,:,nets:nete) )
+        call t_stopf('biharmonic_wk_scalar_minmax')
+        call t_startf('qtens biharmonic')
       call cal_qtens_biharmonic(nets, nete, qsize, nlev, &
                                             np, Qtens_biharmonic, &
                                             rhs_viss, dt, nu_q, hvcoord%hyai, hvcoord%hybi, &
                                             hvcoord%ps0, elem_spheremp)
+        call t_stopf('qtens biharmonic')
+
     endif
  
 
