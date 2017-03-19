@@ -1789,6 +1789,9 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
   integer(kind=8), dimension(3,nets:nete)      :: pack_elem_array
   integer :: edge_nlyr, edge_nbuf
 
+  real :: rcp
+
+
   if (nu_s == 0 .and. nu == 0 .and. nu_p==0 ) return;
   call t_barrierf('sync_advance_hypervis', hybrid%par%comm)
   call t_startf('advance_hypervis_dp')
@@ -2388,6 +2391,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
 !        enddo
         call t_stopf("hypervis_dp after bndry")
         call t_startf("hypervis_dp after bndry2")
+        rcp = 1/cp
         !$ACC parallel loop collapse(2) tile(ie:1, k:16) copyin(elem_array)
         do ie=nets,nete
            do k=1,nlev
@@ -2409,7 +2413,7 @@ subroutine prim_advance_si(elem, nets, nete, cg, blkjac, red, &
                     v2=elem_state_v(i,j,2,k)
                     heating = (vtens(i,j,1,k,ie)*v1  + vtens(i,j,2,k,ie)*v2 )
                     elem_state_T(i,j,k)=elem_state_T(i,j,k) &
-                         +ttens(i,j,k,ie)-heating/cp
+                         +ttens(i,j,k,ie)-heating*rcp
                     elem_state_dp3d(i,j,k)=elem_state_dp3d(i,j,k) + &
                          dptens(i,j,k,ie)
                  enddo

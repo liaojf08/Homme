@@ -27,6 +27,7 @@ module physical_constants
   ! -----------------------------
   implicit none
 
+  integer(kind=8), public :: CPE_FLOPS
   private
 #ifdef CAM
   real (kind=real_kind), public, parameter :: DD_PI = pi

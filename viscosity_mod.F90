@@ -568,23 +568,8 @@ subroutine my_laplace_sphere_wk(s, deriv_Dvv, elem_spheremp, elem_Dinv, elem_var
   integer i,j
 
   call my_gradient_sphere_vis(s,deriv_Dvv,elem_Dinv,grads,my_rrearth)
-
-  if (var_coef) then
-     if (hypervis_scaling==0 ) then
-        ! const or variable viscosity, (1) or (2)
         grads(:,:,1) = grads(:,:,1)*elem_variable_hyperviscosity(:,:)
         grads(:,:,2) = grads(:,:,2)*elem_variable_hyperviscosity(:,:)
-     else
-        ! tensor hv, (3)
-        oldgrads=grads
-        do j=1,4
-           do i=1,4
-              grads(i,j,1) = sum(oldgrads(i,j,:)*elem_tensorVisc(1,:,i,j))
-              grads(i,j,2) = sum(oldgrads(i,j,:)*elem_tensorVisc(2,:,i,j))
-           end do
-        end do
-     endif
-  endif
 
   laplace = my_divergence_sphere_wk(grads, elem_Dinv, elem_spheremp, deriv_Dvv, my_rrearth)
 end subroutine
@@ -1050,17 +1035,110 @@ integer(kind=8), dimension(3,nets:nete)      :: pack_elem_array
 integer, dimension(8) :: elem_desc_putmapP
 pointer(elem_desc_putmapP_ptr, elem_desc_putmapP)
   
+integer, dimension(8) :: elem_desc_getmapP
+pointer(elem_desc_getmapP_ptr, elem_desc_getmapP)
+
 logical, dimension(8) :: elem_desc_reverse
 pointer(elem_desc_reverse_ptr, elem_desc_reverse)
 
 integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array
+integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array2
 
-    !call system_clock(count_start, count_rate, count_max)
+integer :: edge_nlyr, edge_nbuf
+
+!call system_clock(count_start, count_rate, count_max)
+    call t_startf("biharmonic cal before")
     call my_pack_before(nt, nets, nete, elem, deriv, ptens, vtens, dptens,  nu_ratio, rrearth)
+    call t_stopf("biharmonic cal before")
     !call system_clock(count_stop, count_rate, count_max)
     !write(*,*) 'normal count = ', (count_stop - count_start)
     call t_startf("biharmonic pack")
     do ie =nets, nete
+            pack_buf_array2(1,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(north)+1))
+            pack_buf_array2(2,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(north)+2))
+            pack_buf_array2(3,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(north)+3))
+            pack_buf_array2(4,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(north)+4))
+            pack_buf_array2(5,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(5)+1))
+            pack_buf_array2(6,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(6)+1))
+            pack_buf_array2(7,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(7)+1))
+            pack_buf_array2(8,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(8)+1))
+            pack_buf_array2(9,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(south)+1))
+            pack_buf_array2(10,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(south)+2))
+            pack_buf_array2(11,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(south)+3))
+            pack_buf_array2(12,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(south)+4))
+            pack_buf_array2(13,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(east)+1))
+            pack_buf_array2(14,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(east)+2))
+            pack_buf_array2(15,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(east)+3))
+            pack_buf_array2(16,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(east)+4))
+            pack_buf_array2(17,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(west)+1))
+            pack_buf_array2(18,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(west)+2))
+            pack_buf_array2(19,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(west)+3))
+            pack_buf_array2(20,1,ie) = loc(edge3%buf(1,elem(ie)%desc%getmapP(west)+4))
+            
+            pack_buf_array2(1,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(north)+1))
+            pack_buf_array2(2,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(north)+2))
+            pack_buf_array2(3,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(north)+3))
+            pack_buf_array2(4,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(north)+4))
+            pack_buf_array2(5,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(5)+1))
+            pack_buf_array2(6,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(6)+1))
+            pack_buf_array2(7,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(7)+1))
+            pack_buf_array2(8,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(8)+1))
+            pack_buf_array2(9,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(south)+1))
+            pack_buf_array2(10,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(south)+2))
+            pack_buf_array2(11,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(south)+3))
+            pack_buf_array2(12,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(south)+4))
+            pack_buf_array2(13,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(east)+1))
+            pack_buf_array2(14,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(east)+2))
+            pack_buf_array2(15,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(east)+3))
+            pack_buf_array2(16,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(east)+4))
+            pack_buf_array2(17,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(west)+1))
+            pack_buf_array2(18,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(west)+2))
+            pack_buf_array2(19,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(west)+3))
+            pack_buf_array2(20,2,ie) = loc(edge3%buf(nlev+1,elem(ie)%desc%getmapP(west)+4))
+           
+            pack_buf_array2(1,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(north)+1))
+            pack_buf_array2(2,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(north)+2))
+            pack_buf_array2(3,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(north)+3))
+            pack_buf_array2(4,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(north)+4))
+            pack_buf_array2(5,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(5)+1))
+            pack_buf_array2(6,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(6)+1))
+            pack_buf_array2(7,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(7)+1))
+            pack_buf_array2(8,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(8)+1))
+            pack_buf_array2(9,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(south)+1))
+            pack_buf_array2(10,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(south)+2))
+            pack_buf_array2(11,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(south)+3))
+            pack_buf_array2(12,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(south)+4))
+            pack_buf_array2(13,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(east)+1))
+            pack_buf_array2(14,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(east)+2))
+            pack_buf_array2(15,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(east)+3))
+            pack_buf_array2(16,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(east)+4))
+            pack_buf_array2(17,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(west)+1))
+            pack_buf_array2(18,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(west)+2))
+            pack_buf_array2(19,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(west)+3))
+            pack_buf_array2(20,3,ie) = loc(edge3%buf(2*nlev+1,elem(ie)%desc%getmapP(west)+4))
+
+            pack_buf_array2(1,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(north)+1))
+            pack_buf_array2(2,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(north)+2))
+            pack_buf_array2(3,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(north)+3))
+            pack_buf_array2(4,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(north)+4))
+            pack_buf_array2(5,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(5)+1))
+            pack_buf_array2(6,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(6)+1))
+            pack_buf_array2(7,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(7)+1))
+            pack_buf_array2(8,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(8)+1))
+            pack_buf_array2(9,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(south)+1))
+            pack_buf_array2(10,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(south)+2))
+            pack_buf_array2(11,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(south)+3))
+            pack_buf_array2(12,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(south)+4))
+            pack_buf_array2(13,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(east)+1))
+            pack_buf_array2(14,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(east)+2))
+            pack_buf_array2(15,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(east)+3))
+            pack_buf_array2(16,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(east)+4))
+            pack_buf_array2(17,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(west)+1))
+            pack_buf_array2(18,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(west)+2))
+            pack_buf_array2(19,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(west)+3))
+            pack_buf_array2(20,4,ie) = loc(edge3%buf(3*nlev+1,elem(ie)%desc%getmapP(west)+4))
+
+
             pack_buf_array(1,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+1))
             pack_buf_array(2,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+2))
             pack_buf_array(3,1,ie) = loc(edge3%buf(1,elem(ie)%desc%putmapP(north)+3))
@@ -1147,6 +1225,7 @@ integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array
     
             pack_elem_array(1,ie) = loc(elem(ie)%desc%reverse)
             pack_elem_array(2,ie) = loc(elem(ie)%desc%putmapP)
+            pack_elem_array(3,ie) = loc(elem(ie)%desc%getmapP)
         enddo
          !$ACC parallel loop copyin(pack_elem_array, pack_buf_array, ptens)
     do ie = nets, nete
@@ -1317,14 +1396,254 @@ integer(kind=8), dimension(20,4,nets:nete) :: pack_buf_array
     call t_stopf("biharmonic bndry")
 
     call t_startf("biharmonic unpack")
-    call my_edgeVunpack_viscosity_all(nets, nete, edge3%nlyr, edge3%nbuf, &
-            edge3%buf, south, east, north, west, elem, ptens, vtens, dptens, nlev, &
-            swest, max_corner_elem)
+    !call my_edgeVunpack_viscosity_all(nets, nete, edge3%nlyr, edge3%nbuf, &
+    !        edge3%buf, south, east, north, west, elem, ptens, vtens, dptens, nlev, &
+    !        swest, max_corner_elem)
+    edge_nlyr = edge3%nlyr
+    edge_nbuf = edge3%nbuf
+    !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2) copy(ptens)
+    do ie=nets,nete
+            elem_desc_getmapP_ptr = pack_elem_array(3,ie)        
+            edge_buf_in_1_ptr = pack_buf_array2(1,1,ie)
+            edge_buf_in_2_ptr = pack_buf_array2(2,1,ie)
+            edge_buf_in_3_ptr = pack_buf_array2(3,1,ie)
+            edge_buf_in_4_ptr = pack_buf_array2(4,1,ie)
+            edge_buf_5_ptr    = pack_buf_array2(5,1,ie)
+            edge_buf_6_ptr    = pack_buf_array2(6,1,ie)
+            edge_buf_7_ptr    = pack_buf_array2(7,1,ie)
+            edge_buf_8_ptr    = pack_buf_array2(8,1,ie)
+            edge_buf_is_1_ptr = pack_buf_array2(9,1,ie)
+            edge_buf_is_2_ptr = pack_buf_array2(10,1,ie)
+            edge_buf_is_3_ptr = pack_buf_array2(11,1,ie)
+            edge_buf_is_4_ptr = pack_buf_array2(12,1,ie)
+            edge_buf_ie_1_ptr = pack_buf_array2(13,1,ie)
+            edge_buf_ie_2_ptr = pack_buf_array2(14,1,ie)
+            edge_buf_ie_3_ptr = pack_buf_array2(15,1,ie)
+            edge_buf_ie_4_ptr = pack_buf_array2(16,1,ie)
+            edge_buf_iw_1_ptr = pack_buf_array2(17,1,ie)
+            edge_buf_iw_2_ptr = pack_buf_array2(18,1,ie)
+            edge_buf_iw_3_ptr = pack_buf_array2(19,1,ie)
+            edge_buf_iw_4_ptr = pack_buf_array2(20,1,ie)
+           !$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              ptens(:,:,:,ie), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA 
+    enddo
+    !$ACC end parallel loop
 
+    !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2) copy(vtens)
+    do ie=nets,nete
+            elem_desc_getmapP_ptr = pack_elem_array(3,ie)        
+            edge_buf_in_1_ptr = pack_buf_array2(1,2,ie)
+            edge_buf_in_2_ptr = pack_buf_array2(2,2,ie)
+            edge_buf_in_3_ptr = pack_buf_array2(3,2,ie)
+            edge_buf_in_4_ptr = pack_buf_array2(4,2,ie)
+            edge_buf_5_ptr    = pack_buf_array2(5,2,ie)
+            edge_buf_6_ptr    = pack_buf_array2(6,2,ie)
+            edge_buf_7_ptr    = pack_buf_array2(7,2,ie)
+            edge_buf_8_ptr    = pack_buf_array2(8,2,ie)
+            edge_buf_is_1_ptr = pack_buf_array2(9,2,ie)
+            edge_buf_is_2_ptr = pack_buf_array2(10,2,ie)
+            edge_buf_is_3_ptr = pack_buf_array2(11,2,ie)
+            edge_buf_is_4_ptr = pack_buf_array2(12,2,ie)
+            edge_buf_ie_1_ptr = pack_buf_array2(13,2,ie)
+            edge_buf_ie_2_ptr = pack_buf_array2(14,2,ie)
+            edge_buf_ie_3_ptr = pack_buf_array2(15,2,ie)
+            edge_buf_ie_4_ptr = pack_buf_array2(16,2,ie)
+            edge_buf_iw_1_ptr = pack_buf_array2(17,2,ie)
+            edge_buf_iw_2_ptr = pack_buf_array2(18,2,ie)
+            edge_buf_iw_3_ptr = pack_buf_array2(19,2,ie)
+            edge_buf_iw_4_ptr = pack_buf_array2(20,2,ie)
+           !$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              vtens(:,:,:,1:64,ie), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA
+    enddo
+    !$ACC end parallel loop
+
+    !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2) copy(vtens)
+    do ie=nets,nete
+            elem_desc_getmapP_ptr = pack_elem_array(3,ie)        
+            edge_buf_in_1_ptr = pack_buf_array2(1,3,ie)
+            edge_buf_in_2_ptr = pack_buf_array2(2,3,ie)
+            edge_buf_in_3_ptr = pack_buf_array2(3,3,ie)
+            edge_buf_in_4_ptr = pack_buf_array2(4,3,ie)
+            edge_buf_5_ptr    = pack_buf_array2(5,3,ie)
+            edge_buf_6_ptr    = pack_buf_array2(6,3,ie)
+            edge_buf_7_ptr    = pack_buf_array2(7,3,ie)
+            edge_buf_8_ptr    = pack_buf_array2(8,3,ie)
+            edge_buf_is_1_ptr = pack_buf_array2(9,3,ie)
+            edge_buf_is_2_ptr = pack_buf_array2(10,3,ie)
+            edge_buf_is_3_ptr = pack_buf_array2(11,3,ie)
+            edge_buf_is_4_ptr = pack_buf_array2(12,3,ie)
+            edge_buf_ie_1_ptr = pack_buf_array2(13,3,ie)
+            edge_buf_ie_2_ptr = pack_buf_array2(14,3,ie)
+            edge_buf_ie_3_ptr = pack_buf_array2(15,3,ie)
+            edge_buf_ie_4_ptr = pack_buf_array2(16,3,ie)
+            edge_buf_iw_1_ptr = pack_buf_array2(17,3,ie)
+            edge_buf_iw_2_ptr = pack_buf_array2(18,3,ie)
+            edge_buf_iw_3_ptr = pack_buf_array2(19,3,ie)
+            edge_buf_iw_4_ptr = pack_buf_array2(20,3,ie)
+           !$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              vtens(:,:,:,65:128,ie), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA
+    enddo
+    !$ACC end parallel loop
+
+    !$ACC parallel loop copyin(pack_elem_array, pack_buf_array2) copy(dptens)
+    do ie=nets,nete
+            elem_desc_getmapP_ptr = pack_elem_array(3,ie)        
+            edge_buf_in_1_ptr = pack_buf_array2(1,4,ie)
+            edge_buf_in_2_ptr = pack_buf_array2(2,4,ie)
+            edge_buf_in_3_ptr = pack_buf_array2(3,4,ie)
+            edge_buf_in_4_ptr = pack_buf_array2(4,4,ie)
+            edge_buf_5_ptr    = pack_buf_array2(5,4,ie)
+            edge_buf_6_ptr    = pack_buf_array2(6,4,ie)
+            edge_buf_7_ptr    = pack_buf_array2(7,4,ie)
+            edge_buf_8_ptr    = pack_buf_array2(8,4,ie)
+            edge_buf_is_1_ptr = pack_buf_array2(9,4,ie)
+            edge_buf_is_2_ptr = pack_buf_array2(10,4,ie)
+            edge_buf_is_3_ptr = pack_buf_array2(11,4,ie)
+            edge_buf_is_4_ptr = pack_buf_array2(12,4,ie)
+            edge_buf_ie_1_ptr = pack_buf_array2(13,4,ie)
+            edge_buf_ie_2_ptr = pack_buf_array2(14,4,ie)
+            edge_buf_ie_3_ptr = pack_buf_array2(15,4,ie)
+            edge_buf_ie_4_ptr = pack_buf_array2(16,4,ie)
+            edge_buf_iw_1_ptr = pack_buf_array2(17,4,ie)
+            edge_buf_iw_2_ptr = pack_buf_array2(18,4,ie)
+            edge_buf_iw_3_ptr = pack_buf_array2(19,4,ie)
+            edge_buf_iw_4_ptr = pack_buf_array2(20,4,ie)
+           !$ACC data  copyin(elem_desc_getmapP, edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4, edge_buf_5, edge_buf_6, edge_buf_7, edge_buf_8,edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4)
+        call my_edgeVunpack_euler(edge_nlyr, edge_nbuf, elem_desc_getmapP(:), &
+              dptens(:,:,:,ie), nlev, 0, swest, max_corner_elem, &
+              edge_buf_5, edge_buf_6, edge_buf_8, edge_buf_7, &
+              edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+              edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+              edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+              edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+              !$ACC END DATA
+    enddo
+    !$ACC end parallel loop
+
+    !do ie=nets,nete
+    !  kptr=0
+    !  call edgeVunpack(edge3, ptens(1,1,1,ie), nlev, kptr, elem(ie)%desc)
+    !  kptr=nlev
+    !  call edgeVunpack(edge3, vtens(1,1,1,1,ie), 2*nlev, kptr, elem(ie)%desc)
+    !  kptr=3*nlev
+    !  call edgeVunpack(edge3, dptens(1,1,1,ie), nlev, kptr, elem(ie)%desc)
+    !enddo
     call t_stopf("biharmonic unpack")
     call t_startf("biharmonic cal after")
     call my_unpack_after(nets, nete, elem, deriv, ptens, vtens, dptens, nu_ratio, rrearth)
     call t_stopf("biharmonic cal after")
+
+end subroutine
+
+subroutine my_edgeVunpack_euler(edge_nlyr, edge_nbuf, &
+    desc_getmapP, v, my_vlyr,kptr, my_swest, my_max_corner_elem, &
+    swest_buf, seast_buf, neast_buf, nwest_buf, &
+    edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4, &
+    edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4, &
+    edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4, &
+    edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4)
+
+  integer, intent(in) :: edge_nlyr, edge_nbuf, my_swest, my_max_corner_elem
+  real(kind=8), dimension(constLev), intent(in) :: swest_buf
+  real(kind=8), dimension(constLev), intent(in) :: seast_buf
+  real(kind=8), dimension(constLev), intent(in) :: neast_buf
+  real(kind=8), dimension(constLev), intent(in) :: nwest_buf
+  real(kind=8), dimension(constLev), intent(in) :: edge_buf_is_1, edge_buf_is_2, edge_buf_is_3, edge_buf_is_4
+  real(kind=8), dimension(constLev), intent(in) :: edge_buf_iw_1, edge_buf_iw_2, edge_buf_iw_3, edge_buf_iw_4
+  real(kind=8), dimension(constLev), intent(in) :: edge_buf_ie_1, edge_buf_ie_2, edge_buf_ie_3, edge_buf_ie_4
+  real(kind=8), dimension(constLev), intent(in) :: edge_buf_in_1, edge_buf_in_2, edge_buf_in_3, edge_buf_in_4
+  integer, dimension(:), intent(in) :: desc_getmapP
+
+  integer,               intent(in)  :: my_vlyr
+  real (kind=8), intent(inout) :: v(4,4,constLev)
+  integer,               intent(in)  :: kptr
+
+  ! Local
+  logical, parameter :: UseUnroll = .TRUE.
+  integer :: i,k,ll
+
+  do k=1,my_vlyr
+    v(1  ,1  ,k) = v(1  ,1  ,k)+edge_buf_is_1(k)
+    v(2  ,1  ,k) = v(2  ,1  ,k)+edge_buf_is_2(k)
+    v(3  ,1  ,k) = v(3  ,1  ,k)+edge_buf_is_3(k)
+    v(4  ,1  ,k) = v(4  ,1  ,k)+edge_buf_is_4(k)
+
+    v(1  ,1  ,k) = v(1  ,1  ,k)+edge_buf_iw_1(k)
+    v(1  ,2  ,k) = v(1  ,2  ,k)+edge_buf_iw_2(k)
+    v(1  ,3  ,k) = v(1  ,3  ,k)+edge_buf_iw_3(k)
+    v(1  ,4  ,k) = v(1  ,4  ,k)+edge_buf_iw_4(k)
+
+    v(4 ,1  ,k) = v(4 ,1  ,k)+edge_buf_ie_1(k)
+    v(4 ,2  ,k) = v(4 ,2  ,k)+edge_buf_ie_2(k)
+    v(4 ,3  ,k) = v(4 ,3  ,k)+edge_buf_ie_3(k)
+    v(4 ,4  ,k) = v(4 ,4  ,k)+edge_buf_ie_4(k)
+
+    v(1  ,4 ,k) = v(1  ,4 ,k)+edge_buf_in_1(k)
+    v(2  ,4 ,k) = v(2  ,4 ,k)+edge_buf_in_2(k)
+    v(3  ,4 ,k) = v(3  ,4 ,k)+edge_buf_in_3(k)
+    v(4  ,4 ,k) = v(4  ,4 ,k)+edge_buf_in_4(k)
+  end do
+
+! swest
+  do ll=my_swest,my_swest+my_max_corner_elem-1
+    !write(*,*), 'swest loop, ll = ', ll, 'desc_getmapP(ll) = ', desc_getmapP(ll) ! 5
+      if(desc_getmapP(ll) /= -1) then
+          do k=1,my_vlyr
+              v(1  ,1 ,k)=v(1 ,1 ,k)+swest_buf(k)
+          enddo
+      endif
+  end do
+
+! SEAST
+  do ll=my_swest+my_max_corner_elem,my_swest+2*my_max_corner_elem-1
+    !write(*,*), 'seast loop, ll = ', ll, 'desc_getmapP(ll) = ', desc_getmapP(ll) !6
+      if(desc_getmapP(ll) /= -1) then
+          do k=1,my_vlyr
+              v(4 ,1 ,k)=v(4,1 ,k)+seast_buf(k)
+          enddo
+      endif
+  end do
+
+! NEAST
+  do ll=my_swest+3*my_max_corner_elem,my_swest+4*my_max_corner_elem-1
+    !write(*,*), 'neast loop, ll = ', ll, 'desc_getmapP(ll) = ', desc_getmapP(ll) !8
+      if(desc_getmapP(ll) /= -1) then
+          do k=1,my_vlyr
+              v(4 ,4,k)=v(4,4,k)+ neast_buf(k)
+          enddo
+      endif
+  end do
+
+! NWEST
+  do ll=my_swest+2*my_max_corner_elem,my_swest+3*my_max_corner_elem-1
+    !write(*,*), 'nwest loop, ll = ', ll, 'desc_getmapP(ll) = ', desc_getmapP(ll) !7
+      if(desc_getmapP(ll) /= -1) then
+          do k=1,my_vlyr
+              v(1  ,4,k)=v(1 ,4,k)+nwest_buf(k)
+          enddo
+      endif
+  end do
 
 end subroutine
 

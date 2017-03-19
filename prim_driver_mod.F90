@@ -28,6 +28,7 @@ module prim_driver_mod
   use spelt_mod, only : spelt_struct, spelt_init1,spelt_init2, spelt_init3
   
   use element_mod, only : element_t, timelevels,  allocate_element_desc
+  use physical_constants
 
   implicit none
   private

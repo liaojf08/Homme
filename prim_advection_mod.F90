@@ -1803,7 +1803,8 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   subroutine cal_qtens_biharmonic(nets, nete, my_qsize, my_nlev, &
                                             my_np, Qtens_biharmonic, &
                                             rhs_viss, dt, my_nu_q, hvcoord_hyai, hvcoord_hybi, &
-                                            hvcoord_ps0, elem_spheremp_array)
+                                            hvcoord_ps0, elem)
+    type (element_t), intent(inout)   :: elem(nets:nete)
     integer, intent(in) :: nets
     integer, intent(in) :: nete
     integer, intent(in) :: my_qsize
@@ -1816,22 +1817,30 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     real(kind=8), dimension(my_nlev+1), intent(in)         :: hvcoord_hyai
     real(kind=8), dimension(my_nlev+1), intent(in)         :: hvcoord_hybi
     real(kind=8), intent(in)                               :: hvcoord_ps0
-    real(kind=8), dimension(my_np, my_np, nets:nete), intent(in) :: elem_spheremp_array
+    integer(kind=8), dimension(nets:nete) :: rspherempLoc
+    real(kind=8), dimension(my_np, my_np)  :: elem_rspheremp
+    pointer(elem_rspheremp_ptr, elem_rspheremp)
 
     !local
     integer :: ie, q, k
-
-   !$ACC PARALLEL LOOP copy(Qtens_biharmonic) copyin(hvcoord_hyai, hvcoord_hybi, elem_spheremp_array) annotate(entire(hvcoord_hyai, hvcoord_hybi)) collapse(2) tile(q:1)
+    do ie=nets, nete
+        rspherempLoc(ie) = loc(elem(ie)%rspheremp)
+    enddo
+   !$ACC PARALLEL LOOP collapse(2) tile(ie:1, q:1) copy(Qtens_biharmonic) copyin(hvcoord_hyai, hvcoord_hybi) annotate(entire(hvcoord_hyai, hvcoord_hybi))  
    do ie = nets , nete
-    do k = 1 , my_nlev    !  Loop inversion (AAM)
-      do q = 1 , my_qsize
+    do q = 1 , my_qsize
+    elem_rspheremp_ptr = rspherempLoc(ie)
+    !$ACC DATA COPYIN(elem_rspheremp)
+     do k = 1 , my_nlev    !  Loop inversion (AAM)
         qtens_biharmonic(:,:,k,q,ie) = &
-                 -rhs_viss*dt*my_nu_q*( ( hvcoord_hyai(k+1) - hvcoord_hyai(k))*hvcoord_ps0 + ( hvcoord_hybi(k+1) - hvcoord_hybi(k))*hvcoord_ps0) *Qtens_biharmonic(:,:,k,q,ie) / elem_spheremp_array(:,:,ie)
+                 -rhs_viss*dt*my_nu_q*( ( hvcoord_hyai(k+1) - hvcoord_hyai(k))*hvcoord_ps0 + ( hvcoord_hybi(k+1) - hvcoord_hybi(k))*hvcoord_ps0) *Qtens_biharmonic(:,:,k,q,ie) * elem_rspheremp(:,:)
       enddo
+    !$ACC END DATA
     enddo
   enddo
   !$ACC END PARALLEL LOOP
   end subroutine
+
   subroutine my_divergence_sphere(gradQ, derivDvvi, elemmetdevt, elemDinv, elemrmetdet, my_rrearth, div)
     ! ===========================
     ! edited by Conghui
@@ -1902,7 +1911,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     real(kind=8), dimension(const_np,const_np,const_nlev,const_qsize,nets:nete), intent(in)  :: Qtens_biharmonic
     real(kind=8), dimension(const_nlev,const_qsize,nets:nete), intent(inout)                 :: my_qmin
     real(kind=8), dimension(const_nlev,const_qsize,nets:nete), intent(inout)                 :: my_qmax
-    integer(kind=8), dimension(11,nets:nete), intent(inout) :: elem_array
+    integer(kind=8), dimension(12,nets:nete), intent(inout) :: elem_array
 
     ! cray pointers
     real(kind=8), dimension(const_np,const_np,const_nlev) :: elem_derived_dp
@@ -1931,6 +1940,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
     real(kind=8), dimension(const_np,const_np)                :: elem_spheremp
     pointer(elem_spheremp_ptr, elem_spheremp)
+
+
+    real(kind=8), dimension(const_np,const_np)                :: elem_rspheremp
+    pointer(elem_rspheremp_ptr, elem_rspheremp)
 
     real(kind=8), dimension(const_np,const_np,const_nlev,const_qsize) :: elem_state_Qdp_in
     pointer(elem_state_Qdp_in_ptr, elem_state_Qdp_in)
@@ -1974,9 +1987,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_spheremp_ptr                  = elem_array(9,ie)
         elem_state_Qdp_in_ptr              = elem_array(10,ie)
         elem_state_Qdp_out_ptr             = elem_array(11,ie)
+        elem_rspheremp_ptr                 = elem_array(12,ie)
 
-
-        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_derived_dp(*,*,1:partLev), elem_derived_divdp_proj(*,*,1:partLev), elem_derived_divdp(*,*,1:partLev), elem_derived_dpdiss_biharmonic(*,*,1:partLev), elem_derived_vn0(*,*,*,1:partLev))
+        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_rspheremp, elem_derived_dp(*,*,1:partLev), elem_derived_divdp_proj(*,*,1:partLev), elem_derived_divdp(*,*,1:partLev), elem_derived_dpdiss_biharmonic(*,*,1:partLev), elem_derived_vn0(*,*,*,1:partLev))
         !$ACC DATA COPYOUT(elem_state_Qdp_out(*,*,1:partLev,q)) COPY(my_qmin(1:partLev,q,ie), my_qmax(1:partLev,q,ie)) COPYIN(Qtens_biharmonic(*,*,1:partLev,q,ie), elem_state_Qdp_in(*,*,1:partLev,q))
         do k = 1 , partLev
           qdp_val = elem_state_Qdp_in(:,:,k,q)
@@ -2021,7 +2034,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           if ( rhs_viss /= 0 ) Qtens(:,:) = Qtens(:,:) + Qtens_biharmonic(:,:,k,q,ie)
           dp_star(:,:) = (elem_derived_dp(:,:,k) - rhs_multiplier * dt * elem_derived_divdp_proj(:,:,k)) - dt * elem_derived_divdp(:,:,k)
           if ( my_nu_p > 0 .and. rhs_viss /= 0 ) then
-            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) / elem_spheremp(:,:)
+            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) * elem_rspheremp(:,:)
           endif
 
           call limiter_optim_iter_full( Qtens(:,:) , elem_spheremp(:,:) , my_qmin(k,q,ie), my_qmax(k,q,ie) , dp_star(:,:))
@@ -2057,8 +2070,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_spheremp_ptr                  = elem_array(9,ie)
         elem_state_Qdp_in_ptr              = elem_array(10,ie)
         elem_state_Qdp_out_ptr             = elem_array(11,ie)
+        elem_rspheremp_ptr                 = elem_array(12,ie)
 
-        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_derived_dp(*,*,33:64), elem_derived_divdp_proj(*,*,33:64), elem_derived_divdp(*,*,33:64), elem_derived_dpdiss_biharmonic(*,*,33:64), elem_derived_vn0(*,*,*,33:64))
+        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_rspheremp, elem_derived_dp(*,*,33:64), elem_derived_divdp_proj(*,*,33:64), elem_derived_divdp(*,*,33:64), elem_derived_dpdiss_biharmonic(*,*,33:64), elem_derived_vn0(*,*,*,33:64))
         !$ACC DATA COPYOUT(elem_state_Qdp_out(*,*,33:64,q)) COPY(my_qmin(33:64,q,ie), my_qmax(33:64,q,ie)) COPYIN(Qtens_biharmonic(*,*,33:64,q,ie), elem_state_Qdp_in(*,*,33:64,q))
         do k = 33, 64 
           qdp_val = elem_state_Qdp_in(:,:,k,q)
@@ -2071,7 +2085,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           if ( rhs_viss /= 0 ) Qtens(:,:) = Qtens(:,:) + Qtens_biharmonic(:,:,k,q,ie)
           dp_star(:,:) = (elem_derived_dp(:,:,k) - rhs_multiplier * dt * elem_derived_divdp_proj(:,:,k)) - dt * elem_derived_divdp(:,:,k)
           if ( my_nu_p > 0 .and. rhs_viss /= 0 ) then
-            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) / elem_spheremp(:,:)
+            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) * elem_rspheremp(:,:)
           endif
 
           call limiter_optim_iter_full( Qtens(:,:) , elem_spheremp(:,:) , my_qmin(k,q,ie), my_qmax(k,q,ie) , dp_star(:,:))
@@ -2105,8 +2119,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_spheremp_ptr                  = elem_array(9,ie)
         elem_state_Qdp_in_ptr              = elem_array(10,ie)
         elem_state_Qdp_out_ptr             = elem_array(11,ie)
+        elem_rspheremp_ptr                 = elem_array(12,ie)
 
-        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_derived_dp(*,*,65:96), elem_derived_divdp_proj(*,*,65:96), elem_derived_divdp(*,*,65:96), elem_derived_dpdiss_biharmonic(*,*,65:96), elem_derived_vn0(*,*,*,65:96))
+        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_rspheremp, elem_derived_dp(*,*,65:96), elem_derived_divdp_proj(*,*,65:96), elem_derived_divdp(*,*,65:96), elem_derived_dpdiss_biharmonic(*,*,65:96), elem_derived_vn0(*,*,*,65:96))
         !$ACC DATA COPYOUT(elem_state_Qdp_out(*,*,65:96)) COPY(my_qmin(65:96,q,ie), my_qmax(65:96,q,ie)) COPYIN(Qtens_biharmonic(*,*,65:96,q,ie), elem_state_Qdp_in(*,*,65:96,q))
         do k = 65, 96 
           qdp_val = elem_state_Qdp_in(:,:,k,q)
@@ -2119,7 +2134,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           if ( rhs_viss /= 0 ) Qtens(:,:) = Qtens(:,:) + Qtens_biharmonic(:,:,k,q,ie)
           dp_star(:,:) = (elem_derived_dp(:,:,k) - rhs_multiplier * dt * elem_derived_divdp_proj(:,:,k)) - dt * elem_derived_divdp(:,:,k)
           if ( my_nu_p > 0 .and. rhs_viss /= 0 ) then
-            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) / elem_spheremp(:,:)
+            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) * elem_rspheremp(:,:)
           endif
 
           call limiter_optim_iter_full( Qtens(:,:) , elem_spheremp(:,:) , my_qmin(k,q,ie), my_qmax(k,q,ie) , dp_star(:,:))
@@ -2152,8 +2167,9 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
         elem_spheremp_ptr                  = elem_array(9,ie)
         elem_state_Qdp_in_ptr              = elem_array(10,ie)
         elem_state_Qdp_out_ptr             = elem_array(11,ie)
+        elem_rspheremp_ptr                 = elem_array(12,ie)
 
-        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_derived_dp(*,*,97:128), elem_derived_divdp_proj(*,*,97:128), elem_derived_divdp(*,*,97:128), elem_derived_dpdiss_biharmonic(*,*,97:128), elem_derived_vn0(*,*,*,97:128))
+        !$ACC DATA COPYIN(elem_Dinv, elem_metdet, elem_rmetdet, elem_spheremp, elem_rspheremp, elem_derived_dp(*,*,97:128), elem_derived_divdp_proj(*,*,97:128), elem_derived_divdp(*,*,97:128), elem_derived_dpdiss_biharmonic(*,*,97:128), elem_derived_vn0(*,*,*,97:128))
         !$ACC DATA COPYOUT(elem_state_Qdp_out(*,*,97:128,q)) COPY(my_qmin(97:128,q,ie), my_qmax(97:128,q,ie)) COPYIN(Qtens_biharmonic(*,*,97:128,q,ie), elem_state_Qdp_in(*,*,97:128,q))
         do k = 97, 128 
           qdp_val = elem_state_Qdp_in(:,:,k,q)
@@ -2166,7 +2182,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
           if ( rhs_viss /= 0 ) Qtens(:,:) = Qtens(:,:) + Qtens_biharmonic(:,:,k,q,ie)
           dp_star(:,:) = (elem_derived_dp(:,:,k) - rhs_multiplier * dt * elem_derived_divdp_proj(:,:,k)) - dt * elem_derived_divdp(:,:,k)
           if ( my_nu_p > 0 .and. rhs_viss /= 0 ) then
-            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) / elem_spheremp(:,:)
+            dp_star(:,:) = dp_star(:,:) - rhs_viss * dt * my_nu_q * elem_derived_dpdiss_biharmonic(:,:,k) * elem_rspheremp(:,:)
           endif
 
           call limiter_optim_iter_full( Qtens(:,:) , elem_spheremp(:,:) , my_qmin(k,q,ie), my_qmax(k,q,ie) , dp_star(:,:))
@@ -2777,7 +2793,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   real(kind=real_kind), dimension(np,np)                      ::  qdp_val
   real(kind=real_kind), dimension(np,np,nets:nete)            ::  elem_spheremp
   real(kind=real_kind), dimension(np,np,nlev,nets:nete)   :: elem_derived_dpdiss_ave
-  integer(kind=8), dimension(11,nets:nete) :: elem_array
+  integer(kind=8), dimension(12,nets:nete) :: elem_array
   integer(kind=8), dimension(18,nets:nete)      :: pack_elem_array
   integer(kind=8), dimension(20,qsize+1,nets:nete) :: pack_buf_array
   integer(kind=8), dimension(4,nets:nete) :: initCal_array
@@ -2809,10 +2825,10 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
 
   ! added by conghui
   ! AOS TO SOA
-  do ie = nets, nete
-    elem_derived_dpdiss_ave(:,:,:,ie) = elem(ie)%derived%dpdiss_ave(:,:,:)
-    elem_spheremp(:,:,ie)                    = elem(ie)%spheremp(:,:)
-  end do
+  !do ie = nets, nete
+  !  elem_derived_dpdiss_ave(:,:,:,ie) = elem(ie)%derived%dpdiss_ave(:,:,:)
+  !  elem_spheremp(:,:,ie)                    = elem(ie)%spheremp(:,:)
+  !end do
 
   rhs_viss = 0
     call t_startf('euler init cal')
@@ -2838,7 +2854,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       call t_startf('multiplier_1')
       call cal_qmin_qmax_rhs_multiplier_1(nets, nete, qsize, nlev, &
                                             np, Qtens_biharmonic, qmin, qmax)
-      call t_sttopf('multiplier_1')
+      call t_stopf('multiplier_1')
     endif
 
     if ( rhs_multiplier == 2 ) then
@@ -2851,7 +2867,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
       call cal_qtens_biharmonic(nets, nete, qsize, nlev, &
                                             np, Qtens_biharmonic, &
                                             rhs_viss, dt, nu_q, hvcoord%hyai, hvcoord%hybi, &
-                                            hvcoord%ps0, elem_spheremp)
+                                            hvcoord%ps0, elem)
         call t_stopf('qtens biharmonic')
 
     endif
@@ -2946,6 +2962,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     elem_array(9,ie)  = loc(elem(ie)%spheremp)
     elem_array(10,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,n0_qdp))
     elem_array(11,ie) = loc(elem(ie)%state%Qdp(:,:,:,:,np1_qdp))
+    elem_array(12,ie)  = loc(elem(ie)%rspheremp)
   end do
   if (outerLen > 0) then
       call my_euler_step_acc(nets, nete, rhs_multiplier, rhs_viss, &
@@ -3833,7 +3850,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
   enddo
   !$ACC END PARALLEL LOOP
  
-  !$ACC parallel loop collapse(3) copyout( dpo_Asher, pio_Asher, pin_Asher, z2_Asher, kid_Asher) 
+  !$ACC parallel loop  collapse(3) copyout( dpo_Asher, pio_Asher, pin_Asher, z2_Asher, kid_Asher) 
   do ie=nets, nete
     do j=1,np
       do i=1,np
@@ -3874,7 +3891,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END parallel loop
-  !$ACC parallel loop collapse(2) tile(k:16) copy(ttmp1,ttmp2) copyin(dp_star,elem_array)
+  !$ACC parallel loop collapse(2) tile(k:16)  copy(ttmp1,ttmp2) copyin(dp_star,elem_array)
   do ie=nets,nete
     do k=1,nlev
         elem_state_t_ptr    = elem_array(3,ie)
@@ -3886,7 +3903,7 @@ subroutine my_unpack_acc(nets, nete, edge_nlyr, edge_nbuf, &
     enddo
   enddo
   !$ACC END PARALLEL LOOP
-  !$ACC  PARALLEL LOOP collapse(3) tile(i:4) copyin(elem_array,  dpo_Asher,  kid_Asher, z2_Asher) local( masso, ao,  coefs, ppmdx)
+  !$ACC  PARALLEL LOOP collapse(3)  copyin(elem_array,  dpo_Asher,  kid_Asher, z2_Asher) local( masso, ao,  coefs, ppmdx)
   do ie=nets,nete
       do j = 1 , np
         do i = 1 , np
